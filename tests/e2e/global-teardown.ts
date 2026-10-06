@@ -2,7 +2,7 @@ import {readFile,unlink} from 'node:fs/promises';
 import {PrismaClient} from '@prisma/client';
 import {cleanup} from './global-setup';
 
-type State={userId:string;adminId:string;legacyUserId:string;registrationEmail:string;userAccountCode:string;systemAccountCode:string;instrumentIds:string[];seedReference:string};
+type State={userId:string;adminId:string;legacyUserId:string;investorId:string;registrationEmail:string;instrumentIds:string[]};
 
 export default async function globalTeardown(){
 	const stateFile=process.env.AUREVIA_E2E_STATE_FILE;

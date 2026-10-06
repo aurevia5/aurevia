@@ -6,7 +6,7 @@ import { io } from "socket.io-client";
 import PriceChart from "@/components/PriceChart";
 import { useTradingStore } from "@/lib/store";
 import { ArrowDownRight, ArrowUpRight, ChartNoAxesCombined, RefreshCw } from "lucide-react";
-type I = { id: string; symbol: string; price: number; change?: number; takerFee?: number; leverage?: number };
+type I = { id: string; symbol: string; price: number; change?: number; takerFee?: number; leverage?: number; updatedAt?:string; lastUpdatedAt?:string };
 type Order = {
   id: string;
   status: string;
@@ -65,7 +65,7 @@ export default function Trade() {
         );
         if (!active) return;
         setItems(
-          market.map((item: I) => ({ ...item, price: Number(item.price) })),
+          market.map((item: I & {lastUpdatedAt?:string}) => ({ ...item, price: Number(item.price),updatedAt:item.lastUpdatedAt||item.updatedAt })),
         );
         if (market[0]) setSelected(market[0].id);
         setOrders(orderData);
@@ -97,7 +97,7 @@ export default function Trade() {
             (candidate) => candidate.symbol === item.symbol,
           );
           return update
-            ? { ...item, price: update.price, change: update.change }
+            ? { ...item, price: update.price, change: update.change, updatedAt:update.lastUpdatedAt }
             : item;
         }),
       );
@@ -128,7 +128,7 @@ export default function Trade() {
   const requestedQuantity = Number(qty);
   const estimatedNotional = (cur?.price ?? 0) * (Number.isFinite(requestedQuantity) ? requestedQuantity : 0);
   const estimatedFee = estimatedNotional * Number(cur?.takerFee ?? 0);
-  const estimatedMargin = estimatedNotional / Math.max(1, Number(cur?.leverage ?? 1));
+  const estimatedRequiredCash = estimatedNotional + estimatedFee;
 
   async function place(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -144,10 +144,12 @@ export default function Trade() {
         quantity: Number(qty),
         price: type === "LIMIT" && price ? Number(price) : undefined,
         stopPrice: type === "STOP" && price ? Number(price) : undefined,
+        expectedPrice:cur?.price,
+        observedAt:cur?.updatedAt,
       };
       const response = await fetch("/api/orders", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify(body),
       });
       const result = await response.json();
@@ -272,8 +274,8 @@ export default function Trade() {
               <label className="account-label">Order type<select className="input" required value={type} onChange={(event) => setType(event.target.value as "MARKET"|"LIMIT"|"STOP")}><option value="MARKET">Market</option><option value="LIMIT">Limit</option><option value="STOP">Stop</option></select></label>
               <label className="account-label">Quantity<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={qty} onChange={(event) => setQty(event.target.value)} placeholder="0.00"/></label>
               {type !== "MARKET" && <label className="account-label">{type === "STOP" ? "Stop price" : "Limit price"}<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00"/></label>}
-              <div className="trade-estimate" aria-live="polite"><div><span>Available balance</span><b>{availableBalance===null?"Loading…":`$${availableBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}</b></div><div><span>Estimated margin</span><b>{cur?`$${estimatedMargin.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</b></div><div><span>Estimated fee</span><b>{cur?.takerFee===undefined?"Not configured":`$${estimatedFee.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4})}`}</b></div></div>
-              <p className="trade-estimate-note">Estimate uses the configured instrument price, leverage, and taker fee. Final validation happens on the server.</p>
+              <div className="trade-estimate" aria-live="polite"><div><span>Available DEMO cash</span><b>{availableBalance===null?"Loading…":`$${availableBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}</b></div><div><span>Estimated required cash</span><b>{cur?`$${estimatedRequiredCash.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</b></div><div><span>Estimated fee</span><b>{cur?.takerFee===undefined?"Not configured":`$${estimatedFee.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4})}`}</b></div></div>
+              <p className="trade-estimate-note">DEMO spot orders use full notional plus fees. Prices and execution are simulated; the server revalidates balance, ownership, and quote freshness.</p>
               <button type="submit" disabled={placing||!selected||accountMode!=='DEMO'} className="btn w-full bg-gold text-black disabled:opacity-50">{placing?"Submitting…":accountMode==='REAL'?'REAL trading unavailable':`Place ${side} order`}</button>
               </fieldset>
               {msg&&<p className="text-sm muted" role="status">{msg}</p>}

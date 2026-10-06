@@ -1,4 +1,5 @@
 import {expect,test as base,Page} from '@playwright/test';
+import {randomInt} from 'node:crypto';
 
 type RuntimeCapture={consoleErrors:string[];pageErrors:string[];failedRequests:string[];failedResponses:Array<{url:string;status:number}>};
 const appOrigin='http://127.0.0.1:4310';
@@ -9,10 +10,19 @@ export {expect};
 export async function loginAs(page:Page,email:string,password:string){
 	await page.goto('/login');
 	await page.getByLabel('Email or administrator username').fill(email);
-	await page.getByLabel('Password').fill(password);
+	await page.getByLabel('Password',{exact:true}).fill(password);
 	await page.getByRole('checkbox',{name:/Replace the active Aurevia session/}).check();
 	await page.getByRole('button',{name:'Sign in'}).click();
 	await page.waitForURL(/dashboard/);
+}
+
+export async function logout(page:Page){
+	const button=page.getByRole('button',{name:'Logout'});
+	if(!await button.isVisible()){
+		const menu=page.getByRole('button',{name:'Open navigation'});
+		if(await menu.isVisible())await menu.click();
+	}
+	await button.click();
 }
 
 export async function expectNoHorizontalOverflow(page:Page){
@@ -21,6 +31,8 @@ export async function expectNoHorizontalOverflow(page:Page){
 }
 
 test.beforeEach(async({page},testInfo)=>{
+	const testClientIp=`198.51.100.${randomInt(1,255)}`;
+	await page.route('**/api/auth/callback/credentials**',route=>route.continue({headers:{...route.request().headers(),'x-forwarded-for':testClientIp}}));
 	const capture:RuntimeCapture={consoleErrors:[],pageErrors:[],failedRequests:[],failedResponses:[]};
 	(page as Page & {__runtimeCapture?:RuntimeCapture}).__runtimeCapture=capture;
 	page.on('console',message=>{if(message.type()==='error'&&!message.text().includes('status of 400 (Bad Request)')&&!message.text().includes('status of 401 (Unauthorized)'))capture.consoleErrors.push(message.text())});
@@ -40,7 +52,7 @@ test.afterEach(async({page},testInfo)=>{
 	const capture=(page as Page & {__runtimeCapture?:RuntimeCapture}).__runtimeCapture;
 	if(!capture)return;
 	await testInfo.attach('browser-runtime.json',{body:Buffer.from(JSON.stringify(capture,null,2)),contentType:'application/json'});
-	const expectedClientErrors=capture.failedResponses.filter(response=>(response.url.endsWith('/api/register/verify')&&response.status===400)||(response.url.endsWith('/api/auth/callback/credentials')&&response.status===401));
+	const expectedClientErrors=capture.failedResponses.filter(response=>(response.url.endsWith('/api/register/verify')&&response.status===400)||(response.url.endsWith('/api/auth/callback/credentials')&&response.status===401)||(testInfo.title.includes('session replacement is explicit')&&response.url.endsWith('/api/notifications?limit=8')&&response.status===401));
 	const unexpectedResponses=capture.failedResponses.filter(response=>!expectedClientErrors.includes(response));
 	expect(capture.consoleErrors,'browser console errors').toEqual([]);
 	expect(capture.pageErrors,'uncaught browser exceptions').toEqual([]);

@@ -77,8 +77,8 @@ function LiveMarketDashboardContent(){
 
   return <><Nav/><main className="live-market-page">
     <div className="live-market-topline">
-      <div className="live-market-heading"><span>MERCADOS GLOBALES <i/> DATOS EN VIVO</span><h1>Mercados</h1><p>Precios de mercado y gráficos con datos de Yahoo Finance.</p></div>
-      <div className="live-source-status"><span className="live-status-dot"/>Yahoo Finance <small>{activeQuote?`Actualizado ${formatTime(activeQuote.updatedAt)}`:'Esperando cotizaciones'}</small></div>
+      <div className="live-market-heading"><span>MERCADOS GLOBALES <i/> {activeQuote?.isStale?'ÚLTIMO DATO GUARDADO':'DATOS EN VIVO'}</span><h1>Mercados</h1><p>Precios de mercado y gráficos con datos de Yahoo Finance.</p></div>
+      <div className={`live-source-status ${activeQuote?.isStale?'is-stale':''}`}><span className="live-status-dot"/>Yahoo Finance <small>{activeQuote?.isStale?`Último dato guardado · ${formatTime(activeQuote.updatedAt)}`:activeQuote?`Actualizado ${formatTime(activeQuote.updatedAt)}`:'Esperando cotizaciones'}</small></div>
     </div>
 
     <section className="live-ticker" aria-label="Ticker de mercados">
@@ -136,7 +136,8 @@ function LiveMarketDashboardContent(){
             {activeQuote&&<span className={`live-change ${tone(activeQuote.changePercent)}`}><b>{activeQuote.change>=0?'+':''}{formatPrice(activeQuote.change,selectedAsset.currency,selectedAsset.type==='FOREX')}</b><b>({formatPercent(activeQuote.changePercent)})</b></span>}
             <span className="live-market-open-state"><i/> {marketOpenLabel(selectedAsset.type)}</span>
           </div>
-          <div className="live-chart-metadata"><span>Último dato {activeQuote?formatTime(activeQuote.updatedAt):'—'}</span><span>Fuente <b>Yahoo Finance</b></span><button type="button" className="live-refresh-button" aria-label="Actualizar cotizaciones" onClick={()=>{void selectedQuery.refetch();void batchQuery.refetch();void historyQuery.refetch()}}><RefreshCw size={13} className={selectedQuery.isFetching?'is-spinning':''}/> Actualizar</button></div>
+          <div className="live-chart-metadata"><span>{activeQuote?.isStale?'Último dato · DESACTUALIZADO': 'Último dato'} {activeQuote?formatTime(activeQuote.updatedAt):'—'}</span><span>Fuente <b>Yahoo Finance</b></span><button type="button" className="live-refresh-button" aria-label="Actualizar cotizaciones" onClick={()=>{void selectedQuery.refetch();void batchQuery.refetch();void historyQuery.refetch()}}><RefreshCw size={13} className={selectedQuery.isFetching?'is-spinning':''}/> Actualizar</button></div>
+          {activeQuote?.isStale&&<div className="live-data-alert" role="status">Proveedor no disponible. Se muestra el último precio recibido, no una cotización en vivo.{activeQuote.staleReason?` ${activeQuote.staleReason}`:''}</div>}
           <div className="live-timeframes" role="group" aria-label="Intervalo del gráfico">{TIMEFRAMES.map(item=><button type="button" key={item.id} className={timeframe===item.id?'is-active':''} aria-pressed={timeframe===item.id} onClick={()=>setTimeframe(item.id)}>{item.label}</button>)}</div>
           <LivePriceChart candles={historyQuery.data?.candles||[]} quote={activeQuote} timeframe={timeframe} loading={historyQuery.isLoading} error={historyQuery.error instanceof Error?historyQuery.error.message:''}/>
           {error&&<div className="live-data-alert" role="alert">No se pudo actualizar el gráfico. Se conservan los datos históricos disponibles. <button type="button" onClick={()=>void historyQuery.refetch()}>Reintentar</button></div>}

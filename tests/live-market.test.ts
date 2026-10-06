@@ -12,7 +12,7 @@ function chartResponse(price=41000){
 	};
 }
 
-afterEach(()=>vi.unstubAllGlobals());
+afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals()});
 
 describe('live Yahoo market service',()=>{
 	it('parses a live quote and history candles from provider OHLCV',async()=>{
@@ -33,6 +33,19 @@ describe('live Yahoo market service',()=>{
 	it('maps provider throttling to a retryable service error',async()=>{
 		vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('{}',{status:429})));
 		await expect(getMarketQuote(getMarketAsset('MERV')!)).rejects.toMatchObject({status:503});
+	});
+
+	it('returns the last successful quote with an explicit stale marker after provider failure',async()=>{
+		const asset={id:'STALE_CACHE_TEST',ticker:'STALE_CACHE_TEST',name:'Stale cache test',type:'STOCK' as const,currency:'USD'};
+		const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(chartResponse(123)),{status:200,headers:{'content-type':'application/json'}})).mockRejectedValueOnce(new Error('offline'));
+		vi.stubGlobal('fetch',fetcher);
+		const current=await getMarketQuote(asset);
+		vi.useFakeTimers();
+		await vi.advanceTimersByTimeAsync(9_000);
+		const stale=await getMarketQuote(asset);
+		expect(stale.price).toBe(current.price);
+		expect(stale.isStale).toBe(true);
+		expect(stale.staleReason).toContain('unreachable');
 	});
 
 	it('rejects unknown symbols at lookup',()=>{

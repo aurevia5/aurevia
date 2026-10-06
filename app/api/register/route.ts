@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import {AccountMode,Prisma} from '@prisma/client';
 import {z,ZodError} from 'zod';
 import {db} from '@/lib/db';
-import {ensureUserLedger,ensureSystemAccount} from '@/lib/ledger';
+import {ensureUserLedger,ensureSystemAccount,initializeDemoAccount} from '@/lib/ledger';
 import {rateLimit} from '@/lib/rate-limit';
 import {issueVerificationCode} from '@/lib/verification';
 import {registrationVerificationChannel,deliverVerificationCode} from '@/lib/verification-delivery';
@@ -42,7 +42,8 @@ export async function POST(req:Request){
 		const result=await db.$transaction(async tx=>{
 			const created=await tx.user.create({data:{email,passwordHash:await bcrypt.hash(p.password,12),name:p.name,country:p.country,phone:p.phone||null,accountMode:p.accountMode,requiresRegistrationVerification:Boolean(channel),termsAcceptedAt:new Date()}});
 			await tx.kycProfile.upsert({where:{userId:created.id},update:{dob:dateOfBirth},create:{userId:created.id,dob:dateOfBirth}});
-			await ensureUserLedger(tx,created.id,p.accountMode);
+						if(created.accountMode===AccountMode.DEMO)await initializeDemoAccount(tx,created.id);
+						else await ensureUserLedger(tx,created.id,created.accountMode);
 			await ensureSystemAccount(tx,'SYSTEM:LIABILITY','Customer Funds');
 			await createNotification(tx,{userId:created.id,type:NotificationType.ACCOUNT,title:'Account registration received',message:channel?'Complete the configured contact verification to finish registration.':'Your account is ready for sign-in. Phone verification is not enabled.',dedupeKey:`registration:${created.id}:created`,actionUrl:channel?'/register':'/dashboard'});
 			await notifyActiveAdmins(tx,{type:NotificationType.ACCOUNT,title:'New account registration',message:`A new ${created.accountMode.toLowerCase()} account registration is awaiting review.`,dedupeKey:`registration:${created.id}:admin`,relatedEntity:'USER',relatedId:created.id,actionUrl:'/admin'});

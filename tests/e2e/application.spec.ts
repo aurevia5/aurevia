@@ -1,17 +1,22 @@
 import {randomUUID} from 'node:crypto';
-import {io} from 'socket.io-client';
-import {test,expect,loginAs,expectNoHorizontalOverflow} from './fixtures';
+import {test,expect,loginAs,logout,expectNoHorizontalOverflow} from './fixtures';
 
 const viewports=[
 	{width:320,height:800},
+	{width:360,height:800},
+	{width:375,height:812},
 	{width:390,height:844},
+	{width:414,height:896},
 	{width:768,height:1024},
+	{width:1024,height:900},
+	{width:1280,height:900},
 	{width:1440,height:900},
+	{width:1920,height:1080},
 ];
 
 const publicRoutes=['/','/login','/register','/markets','/client-stories','/about','/education','/support','/terms','/privacy','/risk-disclosure'];
-const authenticatedRoutes=['/dashboard','/trade','/wallet','/wallet/transactions','/kyc','/settings','/support','/notifications'];
-const adminRoutes=['/admin/login','/admin','/admin/payments','/admin/support'];
+const authenticatedRoutes=['/dashboard','/trade','/markets','/portfolio','/orders','/investments','/wallet','/wallet/transactions','/kyc','/settings','/support','/notifications'];
+const adminRoutes=['/admin/login','/admin','/admin/investments','/admin/payments','/admin/support'];
 
 function fixture(name:string){
 	const value=process.env[`AUREVIA_E2E_${name}`];
@@ -47,7 +52,7 @@ test('mobile navigation opens and navigates to Login',async({page})=>{
 	await expect(nav).toBeVisible();
 	await nav.getByRole('link',{name:'Login'}).click();
 	await expect(page).toHaveURL(/\/login$/);
-	await expect(page.getByRole('heading',{name:'Sign in'})).toBeVisible();
+	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
 	await expectNoHorizontalOverflow(page);
 });
 
@@ -96,13 +101,13 @@ test('mobile date entry is calendar-backed and future dates are blocked',async({
 test('sign-in password visibility, recovery link, and account link are accessible on mobile',async({page})=>{
 	await page.setViewportSize({width:320,height:800});
 	await page.goto('/login');
-	const password=page.getByLabel('Password');
+	const password=page.getByLabel('Password',{exact:true});
 	await password.fill('ExamplePassword123');
 	await page.getByRole('button',{name:'Show password'}).click();
 	await expect(password).toHaveAttribute('type','text');
 	await page.getByRole('button',{name:'Hide password'}).click();
 	await expect(password).toHaveAttribute('type','password');
-	await expect(page.getByRole('link',{name:'Forgot password?'})).toHaveAttribute('href','/support');
+	await expect(page.getByRole('link',{name:'Forgot password?'})).toHaveAttribute('href','/forgot-password');
 	await expect(page.getByRole('link',{name:'Create an account'})).toHaveAttribute('href','/register');
 	await expectNoHorizontalOverflow(page);
 });
@@ -117,6 +122,9 @@ test('registration selects account mode, verifies through delivery, then login p
 	const realMode=page.getByRole('radio',{name:/REAL ACCOUNT/});
 	await realMode.check();
 	await expect(realMode).toBeChecked();
+	const demoMode=page.getByRole('radio',{name:/DEMO ACCOUNT/});
+	await demoMode.check();
+	await expect(demoMode).toBeChecked();
 	await page.getByLabel('First name').fill('Temporary');
 	await page.getByLabel('Last name').fill('Browser Test');
 	await page.getByLabel('Date of birth').fill('2000-02-29');
@@ -145,7 +153,7 @@ test('registration selects account mode, verifies through delivery, then login p
 	const unverifiedLogin=await page.context().newPage();
 	await unverifiedLogin.goto('/login');
 	await unverifiedLogin.getByLabel('Email or administrator username').fill(email);
-	await unverifiedLogin.getByLabel('Password').fill(password);
+	await unverifiedLogin.getByLabel('Password',{exact:true}).fill(password);
 	await unverifiedLogin.getByRole('button',{name:'Sign in'}).click();
 	await expect(unverifiedLogin.getByText(/Sign-in failed/)).toBeVisible();
 	await unverifiedLogin.close();
@@ -161,7 +169,7 @@ test('registration selects account mode, verifies through delivery, then login p
 	await expect(page).toHaveURL(/\/login\?verified=1/);
 	await expect(page.getByText('Your account is verified. Sign in to continue.',{exact:true})).toBeVisible();
 	await page.getByLabel('Email or administrator username').fill(email);
-	await page.getByLabel('Password').fill(password);
+	await page.getByLabel('Password',{exact:true}).fill(password);
 	await page.getByRole('button',{name:'Sign in'}).click();
 	await page.waitForURL(/dashboard/);
 	const profileResponse=await page.request.get('/api/profile');
@@ -172,13 +180,19 @@ test('registration selects account mode, verifies through delivery, then login p
 	expect(profile).not.toHaveProperty('dateOfBirth');
 	const kycResponse=await page.request.get('/api/kyc');
 	expect((await kycResponse.json()).dob).toBe('2000-02-29T00:00:00.000Z');
+	const demoWallet=await page.request.get('/api/wallet');
+	expect(Number((await demoWallet.json()).balance)).toBe(5000);
+	await page.getByLabel('Account mode').selectOption('REAL');
+	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+	await page.getByLabel('Account mode').selectOption('DEMO');
+	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
 	await page.goto('/');
 	await expect(page.getByRole('link',{name:/Dashboard/}).first()).toBeVisible();
 	await expect(page.getByRole('button',{name:/Notifications/})).toBeVisible();
 	await expect(page.getByRole('link',{name:'Login'})).toHaveCount(0);
 	await page.reload();
 	await expect(page.getByRole('button',{name:/Notifications/})).toBeVisible();
-	await page.getByRole('button',{name:'Logout'}).click();
+	await logout(page);
 	await expect(page).toHaveURL(/\/login/);
 	await page.goto('/');
 	await expect(page.getByRole('link',{name:'Login'})).toBeVisible();
@@ -196,7 +210,7 @@ test('session replacement is explicit and refresh-safe',async({page,browser})=>{
 	const password=fixture('USER_PASSWORD');
 	await page.goto('/login');
 	await page.getByLabel('Email or administrator username').fill(email);
-	await page.getByLabel('Password').fill(password);
+	await page.getByLabel('Password',{exact:true}).fill(password);
 	await page.getByRole('button',{name:'Sign in'}).click();
 	await page.waitForURL(/dashboard/);
 	await page.reload();
@@ -206,7 +220,7 @@ test('session replacement is explicit and refresh-safe',async({page,browser})=>{
 		const otherDevice=await otherContext.newPage();
 		await otherDevice.goto('/login');
 		await otherDevice.getByLabel('Email or administrator username').fill(email);
-		await otherDevice.getByLabel('Password').fill(password);
+			  await otherDevice.getByLabel('Password',{exact:true}).fill(password);
 		await otherDevice.getByRole('button',{name:'Sign in'}).click();
 		await expect(otherDevice.getByText(/Sign-in failed/)).toBeVisible();
 		await otherDevice.getByRole('checkbox',{name:/Replace the active Aurevia session/}).check();
@@ -287,24 +301,14 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	await expect(page.getByRole('button').filter({hasText:subject})).toBeVisible();
 });
 
-test('DEMO trading chart and order produce recorded simulated marketplace activity',async({page})=>{
+test('DEMO trading supports cash-backed buy and owned-unit sell execution',async({browser,page})=>{
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 	const symbol=fixture('INSTRUMENT_B');
 	await page.goto('/markets');
-	await expect(page.getByRole('heading',{name:'MARKET ACTIVITY'})).toBeVisible();
-	await expect(page.getByText('Socket connected')).toBeVisible();
+	await expect(page.getByRole('heading',{name:'Mercados',exact:true})).toBeVisible();
 	const marketPageUrl=page.url();
-	const socket=io('http://127.0.0.1:4310',{autoConnect:false,reconnection:false,timeout:5000});
-	const socketExecutions:Array<{symbol:string;side:string;accountMode:string}> = [];
-	socket.on('trade:update',events=>socketExecutions.push(...events.filter((event:{symbol:string;side:string;accountMode:string})=>event.symbol===symbol&&event.side==='BUY'&&event.accountMode==='DEMO')));
 	const tradePage=await page.context().newPage();
 	try{
-		await new Promise<void>((resolve,reject)=>{
-			const timer=setTimeout(()=>reject(new Error('Socket.IO connection timed out.')),10000);
-			socket.once('connect',()=>{clearTimeout(timer);resolve()});
-			socket.once('connect_error',error=>{clearTimeout(timer);reject(error)});
-			socket.connect();
-		});
 		await tradePage.goto('/trade');
 		const instrument=tradePage.getByRole('button',{name:new RegExp(symbol.replace('/','\\/'))});
 		await expect(instrument).toBeVisible();
@@ -319,21 +323,120 @@ test('DEMO trading chart and order produce recorded simulated marketplace activi
 		const order=await orderResponse.json();
 		expect(order.status).toBe('FILLED');
 		expect(order.executions).toHaveLength(1);
-		const event=page.locator('.market-activity-item').filter({hasText:symbol});
-		await expect(event).toBeVisible();
-		await expect(event.getByText('Demo · simulated')).toBeVisible();
+		await tradePage.getByRole('button',{name:'Sell',exact:true}).click();
+		const sellResponsePromise=tradePage.waitForResponse(response=>response.url().endsWith('/api/orders')&&response.request().method()==='POST');
+		await tradePage.getByRole('button',{name:'Place SELL order'}).click();
+		await expect(tradePage.getByRole('status')).toContainText('Order accepted');
+		const sellResponse=await sellResponsePromise;
+		expect(sellResponse.ok()).toBeTruthy();
+		expect((await sellResponse.json()).status).toBe('FILLED');
+		const openPositions=await tradePage.request.get('/api/positions');
+		expect(await openPositions.json()).toHaveLength(0);
+		const freshMarkets=await tradePage.request.get('/api/market').then(response=>response.json());
+		const freshInstrument=freshMarkets.find((item:{symbol:string})=>item.symbol===symbol);
+		const oversell=await tradePage.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:freshInstrument.id,side:'SELL',type:'MARKET',quantity:1,expectedPrice:Number(freshInstrument.price),observedAt:freshInstrument.lastUpdatedAt}});
+		expect(oversell.status()).toBe(400);
+		expect((await oversell.json()).error).toContain('INSUFFICIENT_POSITION');
+		const privateActivity=await tradePage.request.get('/api/market/activity').then(response=>response.json());
+		expect(privateActivity.source).toBe('simulated execution records');
+		expect(privateActivity.activity.filter((event:{instrument:string;accountMode:string})=>event.instrument===symbol&&event.accountMode==='DEMO')).toHaveLength(2);
+		const unrelatedContext=await browser.newContext();
+		try{
+			const unrelatedPage=await unrelatedContext.newPage();
+			await loginAs(unrelatedPage,fixture('LEGACY_USER_EMAIL'),fixture('LEGACY_USER_PASSWORD'));
+			const unrelatedActivity=await unrelatedPage.request.get('/api/market/activity').then(response=>response.json());
+			expect(unrelatedActivity.activity).toHaveLength(0);
+		}finally{await unrelatedContext.close();}
 		expect(page.url()).toBe(marketPageUrl);
-		await expect(event).toHaveCount(1);
-		await page.waitForTimeout(2500);
-		expect(socketExecutions).toHaveLength(1);
 		await page.getByLabel('Account mode').selectOption('REAL');
-		await expect(page.getByText('No real execution records are available for this account.')).toBeVisible();
-		await expect(page.locator('.market-activity-item')).toHaveCount(0);
+		await expect.poll(async()=>{
+			const response=await tradePage.request.get('/api/market/activity');
+			return (await response.json()).activity;
+		}).toHaveLength(0);
 		await expectNoHorizontalOverflow(page);
-	}finally{
-		socket.disconnect();
-		if(!tradePage.isClosed())await tradePage.close();
-	}
+	}finally{if(!tradePage.isClosed())await tradePage.close();}
+});
+
+test('investment requests remain mode-isolated through admin review without fake REAL settlement',async({browser,page})=>{
+	const adminContext=await browser.newContext();
+	const adminPage=await adminContext.newPage();
+	try{
+		await loginAs(adminPage,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+		const opportunityResponse=await adminPage.request.post('/api/admin/investments',{data:{title:'E2E simulated opportunity',category:'Test allocation',description:'Disposable investment terms for isolated Playwright coverage.',assetSymbol:null,minimumAmount:100,maximumAmount:10000,targetReturnPercent:8,durationDays:30,startsAt:null,maturesAt:null,riskLevel:'MODERATE',status:'AVAILABLE',demoEligible:true,realEligible:true,requiresApproval:true,targetPrice:null,stopPrice:null}});
+		expect(opportunityResponse.status()).toBe(201);
+		const opportunity=await opportunityResponse.json();
+
+		await loginAs(page,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
+		const profile=await page.request.get('/api/profile').then(response=>response.json());
+		const initialDemoWallet=await page.request.get('/api/wallet').then(response=>response.json());
+		expect(Number(initialDemoWallet.balance)).toBe(5000);
+		await page.goto('/investments');
+		await expect(page.getByRole('heading',{name:'Available opportunities'})).toBeVisible();
+		await page.getByLabel('Amount (USD)').fill('1000');
+		await page.getByRole('button',{name:'Request investment'}).click();
+		await expect(page.getByRole('status')).toContainText('DEMO request recorded');
+		let userInvestments=await page.request.get('/api/investments').then(response=>response.json());
+		const demoRequest=userInvestments.requests.find((item:{opportunityId:string;accountMode:string})=>item.opportunityId===opportunity.id&&item.accountMode==='DEMO');
+		expect(demoRequest.status).toBe('PENDING_APPROVAL');
+		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(4000);
+
+		const unrelatedContext=await browser.newContext();
+		try{
+			const unrelatedPage=await unrelatedContext.newPage();
+			await loginAs(unrelatedPage,fixture('LEGACY_USER_EMAIL'),fixture('LEGACY_USER_PASSWORD'));
+			const isolated=await unrelatedPage.request.get('/api/investments').then(response=>response.json());
+			expect(isolated.requests).toHaveLength(0);
+			expect((await unrelatedPage.request.get('/api/admin/investments')).status()).toBe(403);
+		}finally{await unrelatedContext.close();}
+
+		async function review(requestId:string,action:string,extra:Record<string,unknown>={}){
+			const response=await adminPage.request.patch('/api/admin/investments',{data:{requestId,action,...extra}});
+			const result=await response.json();
+			expect(response.ok(),`${action}: ${result.error||response.status()}`).toBeTruthy();
+			return result;
+		}
+		await review(demoRequest.id,'approve');
+		await review(demoRequest.id,'activate');
+		await review(demoRequest.id,'complete');
+		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(4000);
+		await review(demoRequest.id,'settle',{simulatedPayout:1100});
+		userInvestments=await page.request.get('/api/investments').then(response=>response.json());
+		expect(userInvestments.requests.find((item:{id:string})=>item.id===demoRequest.id).status).toBe('SETTLED');
+		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5100);
+
+		const kycResponse=await adminPage.request.patch('/api/admin/users',{data:{userId:profile.id,kycStatus:'APPROVED',reviewNote:'Isolated E2E verification fixture.'}});
+		expect(kycResponse.ok()).toBeTruthy();
+		await page.getByLabel('Account mode').selectOption('REAL');
+			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+		await page.goto('/investments');
+		await expect(page.getByText('REAL requests require approved identity verification')).toBeVisible();
+		const realRequestResponse=await page.request.post('/api/investments',{headers:{'Idempotency-Key':randomUUID()},data:{opportunityId:opportunity.id,amount:500}});
+		expect(realRequestResponse.status()).toBe(201);
+		const realRequest=await realRequestResponse.json();
+		expect(realRequest.status).toBe('PENDING_APPROVAL');
+		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+		await review(realRequest.id,'approve');
+		const unreferencedActivation=await adminPage.request.patch('/api/admin/investments',{data:{requestId:realRequest.id,action:'activate'}});
+		expect(unreferencedActivation.status()).toBe(409);
+		await review(realRequest.id,'cancel');
+		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+
+		await page.getByLabel('Account mode').selectOption('DEMO');
+			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5100);
+			await logout(page);
+		await loginAs(page,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
+		const persistedDemoWallet=await page.request.get('/api/wallet').then(response=>response.json());
+		expect(Number(persistedDemoWallet.balance)).toBe(5100);
+		await page.goto('/portfolio');
+		await page.getByRole('button',{name:'Reset DEMO'}).click();
+		await page.getByLabel('Type RESET DEMO ACCOUNT to confirm').fill('RESET DEMO ACCOUNT');
+		await page.getByRole('button',{name:'Confirm DEMO reset'}).click();
+		await expect(page.getByRole('status')).toContainText('DEMO portfolio reset to $5,000.00');
+		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
+		await page.getByLabel('Account mode').selectOption('REAL');
+			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+		await expectNoHorizontalOverflow(page);
+	}finally{await adminContext.close();}
 });
 
 test('Nova escalation reaches admin and admin response appears with notification',async({page})=>{
@@ -342,7 +445,7 @@ test('Nova escalation reaches admin and admin response appears with notification
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 	await page.goto('/support');
 	await expect(page.getByRole('heading',{name:'Nova AI',exact:true})).toBeVisible();
-	const supportContact=await fetch(`${process.env.NEXT_PUBLIC_APP_URL||'http://127.0.0.1:4310'}/api/support/contact`).then(response=>response.json());
+	const supportContact=await page.request.get('/api/support/contact').then(response=>response.json());
 	if(supportContact.email)await expect(page.getByRole('link',{name:new RegExp(supportContact.email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})).toBeVisible();
 	else await expect(page.getByText('Direct email is not configured. Authenticated support tickets remain available.')).toBeVisible();
 	await page.getByRole('button',{name:'Contact Admin'}).click();
@@ -350,7 +453,7 @@ test('Nova escalation reaches admin and admin response appears with notification
 	await page.getByLabel('Message').fill('Please review this disposable browser test ticket.');
 	await page.getByRole('button',{name:'Create support ticket'}).click();
 	await expect(page.getByRole('status')).toContainText(/created\./i);
-	await page.getByRole('button',{name:'Logout'}).click();
+	await logout(page);
 	await expect(page).toHaveURL(/\/login/);
 	await loginAs(page,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
 	await page.goto('/admin/support');
@@ -358,7 +461,7 @@ test('Nova escalation reaches admin and admin response appears with notification
 	await page.getByLabel('Admin response').fill(reply);
 	await page.getByRole('button',{name:'Send response'}).click();
 	await expect(page.getByRole('status')).toContainText('Response sent to the user');
-	await page.getByRole('button',{name:'Logout'}).click();
+	await logout(page);
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 	await page.goto('/notifications');
 	await expect(page.getByText('Admin replied to your support ticket')).toBeVisible();
@@ -371,13 +474,14 @@ test('Nova escalation reaches admin and admin response appears with notification
 test('administrator email sign-in persists through refresh and logout removes admin access',async({page})=>{
 	await page.goto('/admin/login');
 	await page.getByLabel('Admin username').fill(fixture('ADMIN_EMAIL'));
-	await page.getByLabel('Password').fill(fixture('ADMIN_PASSWORD'));
+	await page.getByLabel('Password',{exact:true}).fill(fixture('ADMIN_PASSWORD'));
+	await page.getByRole('checkbox',{name:/Replace another active Aurevia session/}).check();
 	await page.getByRole('button',{name:'Enter control center'}).click();
 	await page.waitForURL(/\/admin$/);
 	await expect(page.getByRole('heading',{name:'Aurevia administration'})).toBeVisible();
 	await page.reload();
 	await expect(page.getByRole('heading',{name:'Aurevia administration'})).toBeVisible();
-	await page.getByRole('button',{name:'Logout'}).click();
+	await logout(page);
 	await expect(page).toHaveURL(/\/login/);
 	await page.goto('/admin');
 	await expect(page).toHaveURL(/\/login/);

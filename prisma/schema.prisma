@@ -124,6 +124,31 @@ enum ClientStoryStatus {
   ARCHIVED
 }
 
+enum InvestmentRisk {
+  LOW
+  MODERATE
+  HIGH
+  VERY_HIGH
+}
+
+enum InvestmentOpportunityStatus {
+  DRAFT
+  AVAILABLE
+  PAUSED
+  CLOSED
+}
+
+enum InvestmentStatus {
+  PENDING_APPROVAL
+  APPROVED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  REJECTED
+  CANCELLED
+  SETTLED
+}
+
 model User {
   id String @id @default(cuid())
   email String @unique
@@ -158,6 +183,9 @@ model User {
   verificationCode VerificationCode?
   passwordResetTokens PasswordResetToken[]
   clientStories ClientStory[]
+  investments InvestmentRequest[]
+  portfolioSnapshots PortfolioSnapshot[]
+  createdInvestmentOpportunities InvestmentOpportunity[] @relation("InvestmentOpportunityCreator")
   avatarKey String?
 }
 
@@ -263,6 +291,7 @@ model Order {
   stopPrice Decimal? @db.Decimal(30,10)
   averageFillPrice Decimal? @db.Decimal(30,10)
   fee Decimal @default(0) @db.Decimal(30,10)
+  idempotencyKey String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   executions Execution[]
@@ -423,6 +452,78 @@ model AuditLog {
   metadata Json?
   createdAt DateTime @default(now())
   @@index([createdAt])
+}
+
+model InvestmentOpportunity {
+  id String @id @default(cuid())
+  title String
+  category String
+  description String
+  assetSymbol String?
+  minimumAmount Decimal @db.Decimal(30,10)
+  maximumAmount Decimal? @db.Decimal(30,10)
+  targetReturnPercent Decimal? @db.Decimal(10,6)
+  durationDays Int
+  startsAt DateTime?
+  maturesAt DateTime?
+  riskLevel InvestmentRisk
+  status InvestmentOpportunityStatus @default(DRAFT)
+  demoEligible Boolean @default(true)
+  realEligible Boolean @default(false)
+  requiresApproval Boolean @default(true)
+  targetPrice Decimal? @db.Decimal(30,10)
+  stopPrice Decimal? @db.Decimal(30,10)
+  createdById String
+  createdBy User @relation("InvestmentOpportunityCreator", fields:[createdById], references:[id], onDelete:Restrict)
+  requests InvestmentRequest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status,createdAt])
+  @@index([assetSymbol,status])
+}
+
+model InvestmentRequest {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  opportunityId String
+  opportunity InvestmentOpportunity @relation(fields:[opportunityId], references:[id], onDelete:Restrict)
+  accountMode AccountMode
+  amount Decimal @db.Decimal(30,10)
+  status InvestmentStatus @default(PENDING_APPROVAL)
+  idempotencyKey String @unique
+  targetReturnPercent Decimal? @db.Decimal(10,6)
+  durationDays Int
+  requestedAt DateTime @default(now())
+  approvedAt DateTime?
+  activatedAt DateTime?
+  maturesAt DateTime?
+  completedAt DateTime?
+  settledAt DateTime?
+  externalExecutionReference String?
+  settlementReference String?
+  simulatedPayout Decimal? @db.Decimal(30,10)
+  adminNote String?
+  updatedAt DateTime @updatedAt
+  @@index([userId,accountMode,status,requestedAt])
+  @@index([opportunityId,status,requestedAt])
+}
+
+model PortfolioSnapshot {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  accountMode AccountMode
+  snapshotBucket DateTime
+  cashBalance Decimal @db.Decimal(30,10)
+  positionValue Decimal @db.Decimal(30,10)
+  investmentValue Decimal @db.Decimal(30,10)
+  totalValue Decimal @db.Decimal(30,10)
+  realizedPnl Decimal @db.Decimal(30,10)
+  unrealizedPnl Decimal @db.Decimal(30,10)
+  createdAt DateTime @default(now())
+  @@unique([userId,accountMode,snapshotBucket])
+  @@index([accountMode,snapshotBucket])
 }
 
 model ClientStory {

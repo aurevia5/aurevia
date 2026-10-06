@@ -21,6 +21,8 @@ export type MarketQuote = {
   fiftyTwoWeekLow: number | null;
   fiftyTwoWeekHigh: number | null;
   updatedAt: string;
+  isStale?: boolean;
+  staleReason?: string;
   sparkline: number[];
 };
 
@@ -79,6 +81,7 @@ type YahooChartResult = {
 type Cached<T> = {expiresAt:number;promise:Promise<T>};
 const chartCache = new Map<string,Cached<YahooChartResult>>();
 const quoteCache = new Map<string,Cached<MarketQuote>>();
+const lastKnownQuoteCache = new Map<string,MarketQuote>();
 
 export class MarketDataError extends Error {
   constructor(message:string,readonly status=502){super(message);this.name='MarketDataError';}
@@ -143,7 +146,16 @@ function quoteFromResult(asset:LiveMarketAsset,result:YahooChartResult):MarketQu
 }
 
 export async function getMarketQuote(asset:LiveMarketAsset):Promise<MarketQuote>{
-  return getCached(quoteCache,asset.id,5_000,async()=>quoteFromResult(asset,await fetchYahooChart(asset,'1d','1m')));
+  try{
+    const quote=await getCached(quoteCache,asset.id,5_000,async()=>quoteFromResult(asset,await fetchYahooChart(asset,'1d','1m')));
+    const fresh={...quote,isStale:false};
+    lastKnownQuoteCache.set(asset.id,fresh);
+    return fresh;
+  }catch(error){
+    const lastKnown=lastKnownQuoteCache.get(asset.id);
+    if(!lastKnown)throw error;
+    return {...lastKnown,isStale:true,staleReason:error instanceof Error?error.message:'Market data is temporarily unavailable.'};
+  }
 }
 
 export async function getMarketHistory(asset:LiveMarketAsset,timeframe:TimeframeId){

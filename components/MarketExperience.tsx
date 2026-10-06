@@ -51,7 +51,6 @@ export default function MarketExperience(){
 	useEffect(()=>{
 		if(sessionStatus==='loading')return;
 		let active=true;
-		let connected=false;
 		setActivity([]);
 		async function refresh(){
 			try{
@@ -65,18 +64,13 @@ export default function MarketExperience(){
 		}
 		void refresh();
 		const socket=io({reconnection:true,reconnectionAttempts:Infinity,reconnectionDelay:1000,reconnectionDelayMax:10000,timeout:8000});
-		const onConnect=()=>{connected=true;if(active)setConnection('live')};
-		const onDisconnect=()=>{connected=false;if(active)setConnection('offline')};
-		const onConnectError=()=>{connected=false;if(active)setConnection('offline')};
+				const onConnect=()=>{if(active)setConnection('live')};
+				const onDisconnect=()=>{if(active)setConnection('offline')};
+				const onConnectError=()=>{if(active)setConnection('offline')};
 		const onMarket=(updates:Array<{symbol:string;price:number;change:number}>)=>{if(!active)return;setMarkets(current=>current.map(item=>{const update=updates.find(value=>value.symbol===item.symbol);return update?{...item,price:update.price,change:update.change}:item}))};
-		const onTrades=(events:Array<{id:string;symbol:string;side:'BUY'|'SELL';quantity:number;price:number;createdAt:string;status:string;accountMode:'DEMO'|'REAL'}>)=>{
-			if(!active||isReal)return;
-			const demoEvents=events.filter(event=>event.accountMode==='DEMO').map(event=>({...event,instrument:event.symbol,timestamp:event.createdAt}));
-			setActivity(current=>mergeActivity(current,demoEvents));
-		};
-		socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('connect_error',onConnectError);socket.on('market:update',onMarket);socket.on('trade:update',onTrades);
-		const poll=window.setInterval(()=>{if(!connected||isReal)void refresh()},15000);
-		return()=>{active=false;window.clearInterval(poll);socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('connect_error',onConnectError);socket.off('market:update',onMarket);socket.off('trade:update',onTrades);socket.disconnect()};
+		socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('connect_error',onConnectError);socket.on('market:update',onMarket);
+		const poll=window.setInterval(()=>{void refresh()},15000);
+		return()=>{active=false;window.clearInterval(poll);socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('connect_error',onConnectError);socket.off('market:update',onMarket);socket.disconnect()};
 	},[sessionStatus,isReal]);
 
 	return <><Nav/><main className="account-page market-page">

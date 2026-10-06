@@ -2,9 +2,7 @@ import next from 'next';
 import {createServer} from 'http';
 import {Server as IOServer} from 'socket.io';
 import {loadEnvConfig} from '@next/env';
-import {AccountMode} from '@prisma/client';
 import {tickMarkets} from './lib/market';
-import {db} from './lib/db';
 
 loadEnvConfig(process.cwd());
 
@@ -46,8 +44,6 @@ async function startServer(){
  const io=new IOServer(http,{cors:{origin:publicUrl,credentials:true}});
  io.on('connection',socket=>{socket.emit('connected',{ok:true});});
      const intervalMs=Math.max(1000,Number(process.env.MARKET_TICK_MS||2500));
-    const emittedExecutionIds=new Set<string>();
-    const emittedExecutionOrder:string[]=[];
  let running=false;
  let consecutiveFailures=0;
 
@@ -66,17 +62,6 @@ async function startServer(){
     const data=await tickMarkets();
         consecutiveFailures=0;
     io.emit('market:update',data);
-    const recent=await db.execution.findMany({where:{createdAt:{gte:new Date(Date.now()-intervalMs-500)},order:{accountMode:AccountMode.DEMO}},include:{order:{include:{instrument:true}}},orderBy:{createdAt:'desc'},take:100});
-            const fresh=recent.filter(execution=>!emittedExecutionIds.has(execution.id));
-            for(const execution of fresh){
-                emittedExecutionIds.add(execution.id);
-                emittedExecutionOrder.push(execution.id);
-            }
-            while(emittedExecutionOrder.length>5000){
-                const expiredId=emittedExecutionOrder.shift();
-                if(expiredId)emittedExecutionIds.delete(expiredId);
-            }
-            if(fresh.length)io.emit('trade:update',fresh.map(execution=>({id:execution.id,symbol:execution.order.instrument.symbol,side:execution.order.side,quantity:Number(execution.quantity),price:Number(execution.price),status:execution.order.status,accountMode:execution.order.accountMode,createdAt:execution.createdAt})));
      }catch(error){
         consecutiveFailures++;
         nextDelay=Math.min(intervalMs*2**Math.min(consecutiveFailures,6),60_000);
