@@ -1,7 +1,9 @@
 "use client";
 import { FormEvent, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import Nav from "@/components/Nav";
+import LiveMarketPreview from "@/components/LiveMarketPreview";
 import { io } from "socket.io-client";
 import PriceChart from "@/components/PriceChart";
 import { useTradingStore } from "@/lib/store";
@@ -52,6 +54,14 @@ export default function Trade() {
     setMsg('');
     const load = async () => {
       try {
+        if(session?.user?.accountMode==='REAL'){
+          const [orderResponse,walletResponse]=await Promise.all([fetch("/api/orders"),fetch("/api/wallet")]);
+          if(!orderResponse.ok||!walletResponse.ok)throw new Error("Unable to load REAL account data.");
+          const [orderData,walletData]=await Promise.all([orderResponse.json(),walletResponse.json()]);
+          if(!active)return;
+          setItems([]);setSelected("");setOrders(orderData);setPositions([]);setAccountMode('REAL');setAvailableBalance(Number(walletData.balance));
+          return;
+        }
         const responses = await Promise.all([
           fetch("/api/market"),
           fetch("/api/orders"),
@@ -89,6 +99,7 @@ export default function Trade() {
       }
     };
     void load();
+    if(session?.user?.accountMode==='REAL')return()=>{active=false;};
     const socket = io();
     const onMarketUpdate = (updates: I[]) => {
       setItems((old) =>
@@ -111,7 +122,7 @@ export default function Trade() {
     };
   }, [updateStore,sessionStatus,session?.user?.accountMode]);
   useEffect(() => {
-    if (!selected) return;
+    if (!selected||accountMode!=='DEMO') return;
     const load = () =>
       fetch(`/api/orderbook?instrumentId=${selected}`)
         .then((r) => r.json())
@@ -119,7 +130,7 @@ export default function Trade() {
     load();
     const t = setInterval(load, 2500);
     return () => clearInterval(t);
-  }, [selected]);
+  }, [selected,accountMode]);
   const cur = items.find((i) => i.id === selected);
   const pnl = (p: Pos) =>
     p.side === "BUY"
@@ -190,8 +201,8 @@ export default function Trade() {
     <>
       <Nav />
       <main className="trade-terminal">
-        <header className="account-heading"><div><span className="account-kicker">{accountMode==='LOADING'?'Restoring account mode':`${accountMode} ACCOUNT · Trading workspace`}</span><h1>Trade markets</h1><p>Market data and executions in this workspace are simulated and never affect REAL account balances.</p></div><span className={`status-pill ${accountMode==='REAL'?'mode-real':'mode-demo'}`}>{accountMode==='REAL'?'REAL · execution unavailable':'DEMO prices'}</span></header>
-        {accountMode==='REAL'&&<div className="account-callout mb-4"><span>Real-account trading is disabled because no external execution provider is connected. Switch to DEMO to use simulated orders; real ledger funds remain untouched.</span></div>}
+        <header className="account-heading"><div><span className="account-kicker">{accountMode==='LOADING'?'Restoring account mode':`${accountMode} ACCOUNT · Trading workspace`}</span><h1>Trade markets</h1><p>{accountMode==='REAL'?'Your REAL account remains active. Read-only external market data is available; order execution is not connected.':'Practice with simulated prices and executions. DEMO activity never affects REAL account balances.'}</p></div><span className={`status-pill ${accountMode==='REAL'?'mode-real':'mode-demo'}`}>{accountMode==='LOADING'?'RESTORING':accountMode==='REAL'?'REAL · ACTIVE':'DEMO · SIMULATED'}</span></header>
+        {accountMode==='REAL'?<div className="real-trade-view"><div className="account-callout"><span>REAL account status is active. Aurevia has no connected broker execution provider; no REAL order will be simulated or submitted from this page.</span></div><section className="account-panel card p-5"><LiveMarketPreview/></section><section className="account-panel card p-5"><div className="account-panel-title"><div><h2>REAL execution status</h2><p className="account-panel-subtitle">Your recorded REAL ledger and funding activity remain available in Wallet. External positions are not connected.</p></div><span className="status-pill mode-real">ACTIVE · READ ONLY</span></div><Link className="text-link" href="/markets">Open live charts <ArrowUpRight size={14}/></Link><Link className="text-link ml-4" href="/wallet">Open REAL wallet <ArrowUpRight size={14}/></Link></section></div>:accountMode==='DEMO'?<>
         <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
           <section className="card min-h-[650px] p-5">
             <div className="trade-market-select" role="group" aria-label="Select an instrument">
@@ -254,7 +265,7 @@ export default function Trade() {
             </div>
           </section>
           <section className="card p-5">
-            <div className="account-panel-title"><div><h2>Order ticket</h2><p className="account-panel-subtitle">Review the order estimate before submitting.</p></div><span className={`status-pill ${accountMode==='REAL'?'mode-real':'mode-demo'}`}>{accountMode}</span></div>
+            <div className="account-panel-title"><div><h2>Order ticket</h2><p className="account-panel-subtitle">Review the simulated DEMO order estimate before submitting.</p></div><span className="status-pill mode-demo">DEMO</span></div>
             <form onSubmit={place} className="space-y-3">
               <fieldset disabled={accountMode!=='DEMO'} className="space-y-3">
               <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order side">
@@ -276,7 +287,7 @@ export default function Trade() {
               {type !== "MARKET" && <label className="account-label">{type === "STOP" ? "Stop price" : "Limit price"}<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00"/></label>}
               <div className="trade-estimate" aria-live="polite"><div><span>Available DEMO cash</span><b>{availableBalance===null?"Loading…":`$${availableBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}</b></div><div><span>Estimated required cash</span><b>{cur?`$${estimatedRequiredCash.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</b></div><div><span>Estimated fee</span><b>{cur?.takerFee===undefined?"Not configured":`$${estimatedFee.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4})}`}</b></div></div>
               <p className="trade-estimate-note">DEMO spot orders use full notional plus fees. Prices and execution are simulated; the server revalidates balance, ownership, and quote freshness.</p>
-              <button type="submit" disabled={placing||!selected||accountMode!=='DEMO'} className="btn w-full bg-gold text-black disabled:opacity-50">{placing?"Submitting…":accountMode==='REAL'?'REAL trading unavailable':`Place ${side} order`}</button>
+              <button type="submit" disabled={placing||!selected} className="btn w-full bg-gold text-black disabled:opacity-50">{placing?"Submitting…":`Place ${side} order`}</button>
               </fieldset>
               {msg&&<p className="text-sm muted" role="status">{msg}</p>}
             </form>
@@ -332,6 +343,7 @@ export default function Trade() {
         <section className="account-panel card mt-4 p-5"><div className="account-panel-title"><div><h2>Order history</h2><p className="account-panel-subtitle">Recent submitted orders and recorded status.</p></div><RefreshCw size={17} className="gold" aria-hidden="true"/></div>
           {orders.length?<div className="account-table-wrap"><table className="account-table"><thead><tr><th>Instrument</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit / stop</th><th>Status</th></tr></thead><tbody>{orders.slice(0,20).map(order=><tr key={order.id}><td>{order.instrument.symbol}</td><td>{order.side}</td><td>{order.type}</td><td>{Number(order.quantity).toLocaleString()}</td><td>{order.type==='LIMIT'?Number(order.price||0).toLocaleString(undefined,{maximumFractionDigits:6}):order.type==='STOP'?Number(order.stopPrice||0).toLocaleString(undefined,{maximumFractionDigits:6}):'Market'}</td><td><span className="status-pill">{order.status.replaceAll('_',' ')}</span></td></tr>)}</tbody></table></div>:<div className="account-empty">No submitted orders yet.</div>}
         </section>
+        </>:<div className="account-empty" role="status">Restoring account session…</div>}
       </main>
     </>
   );
