@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run typecheck",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"typecheck"
+			],
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
