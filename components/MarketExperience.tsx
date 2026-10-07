@@ -30,6 +30,7 @@ export default function MarketExperience(){
 	const [connection,setConnection]=useState<Connection>('connecting');
 	const [loading,setLoading]=useState(true);
 	const [error,setError]=useState('');
+	const [retryCount,setRetryCount]=useState(0);
 	const selected=markets.find(item=>item.id===selectedId)||markets[0];
 	const isReal=accountMode==='REAL';
 	const sortedActivity=useMemo(()=>activity.slice(0,30),[activity]);
@@ -49,10 +50,14 @@ export default function MarketExperience(){
 	}
 
 	useEffect(()=>{
+		setActivity([]);
+	},[isReal]);
+
+	useEffect(()=>{
 		if(sessionStatus==='loading')return;
 		let active=true;
-		setActivity([]);
-		async function refresh(){
+		async function refresh(showLoading=false){
+			if(showLoading)setLoading(true);
 			try{
 				const [marketResponse,activityResponse]=await Promise.all([fetch('/api/market',{cache:'no-store'}),fetch('/api/market/activity',{cache:'no-store'})]);
 				if(!marketResponse.ok||!activityResponse.ok)throw new Error('Market data is temporarily unavailable.');
@@ -60,9 +65,9 @@ export default function MarketExperience(){
 				if(!active)return;
 				setMarkets(nextMarkets);setSelectedId(current=>current||nextMarkets[0]?.id||'');setActivity(current=>mergeActivity(current,activityResult.activity));setError('');
 			}catch(exception){if(active)setError(exception instanceof Error?exception.message:'Market data is temporarily unavailable.')}
-			finally{if(active)setLoading(false)}
+			finally{if(active&&showLoading)setLoading(false)}
 		}
-		void refresh();
+		void refresh(true);
 		const socket=io({reconnection:true,reconnectionAttempts:Infinity,reconnectionDelay:1000,reconnectionDelayMax:10000,timeout:8000});
 				const onConnect=()=>{if(active)setConnection('live')};
 				const onDisconnect=()=>{if(active)setConnection('offline')};
@@ -71,11 +76,11 @@ export default function MarketExperience(){
 		socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('connect_error',onConnectError);socket.on('market:update',onMarket);
 		const poll=window.setInterval(()=>{void refresh()},15000);
 		return()=>{active=false;window.clearInterval(poll);socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('connect_error',onConnectError);socket.off('market:update',onMarket);socket.disconnect()};
-	},[sessionStatus,isReal]);
+	},[sessionStatus,isReal,retryCount]);
 
 	return <><Nav/><main className="account-page market-page">
 		<header className="account-heading"><div><span className="account-kicker">MARKETPLACE · IN-APP PRICE FEED</span><h1>Markets</h1><p>{selected?`${selected.source} · ${selected.dataMode.toLowerCase()} data, not an exchange feed.`:'Quotes are unavailable until instruments load.'}</p></div><div className="market-heading-status"><span className={`status-pill ${isReal?'mode-real':'mode-demo'}`}>{isReal?'REAL ACCOUNT':'DEMO ACCOUNT'}</span><span className={`market-connection is-${connection}`}><i/>{connection==='live'?'Socket connected':connection==='connecting'?'Connecting':'Offline · refreshing'}</span></div></header>
-		{error&&<div className="account-callout market-error"><span>{error}</span><button type="button" className="text-link" onClick={()=>window.location.reload()}><RefreshCw size={14}/> Retry</button></div>}
+		{error&&<div className="account-callout market-error" role="alert"><span>{error}</span><button type="button" className="text-link" disabled={loading} aria-busy={loading} onClick={()=>{setError('');setLoading(true);setRetryCount(value=>value+1)}}><RefreshCw size={14}/> {loading?'Refreshing…':'Retry'}</button></div>}
 		<section className="account-panel card p-5"><div className="account-panel-title"><div><h2>Market overview</h2><p className="account-panel-subtitle">Enabled instruments · {markets[0]?.source||'configured market provider'}</p></div><span className="status-pill mode-demo">{markets[0]?.marketStatus||'UNAVAILABLE'}</span></div>
 			{loading&&!markets.length?<div className="account-empty" role="status">Loading current instruments…</div>:markets.length?<div className="market-instrument-grid">{markets.map(instrument=><button type="button" key={instrument.id} className={`market-instrument ${selected?.id===instrument.id?'is-selected':''}`} aria-pressed={selected?.id===instrument.id} onClick={()=>setSelectedId(instrument.id)}><span>{instrument.symbol}</span><b>{Number(instrument.price).toLocaleString(undefined,{maximumFractionDigits:6})}</b><small>{instrument.name}</small><em>{instrument.dataMode==='SIMULATED'?'Simulated price':'Provider quote'}</em></button>)}</div>:<div className="account-empty">No enabled instruments are available right now.</div>}
 		</section>

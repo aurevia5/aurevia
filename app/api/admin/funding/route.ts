@@ -20,8 +20,9 @@ export async function GET(req:Request){
 		const requests=await db.fundingRequest.findMany({where,include:{user:{select:{email:true,name:true}},paymentMethod:{select:{name:true}}},orderBy:{createdAt:includeHistory?'desc':'asc'},take:includeHistory?200:undefined});
 		const safeRequests=requests.map(({receiptKey,...request})=>({...request,hasReceipt:!!receiptKey}));
 		return NextResponse.json(jsonSafe(safeRequests),{headers:{'Cache-Control':'private, no-store'}});
-	}catch{
-		return NextResponse.json({error:'Forbidden'},{status:403});
+	}catch(error){
+		const status=error instanceof Error&&error.message==='UNAUTHORIZED'?401:403;
+		return NextResponse.json({error:status===401?'Unauthorized':'Forbidden'},{status});
 	}
 }
 
@@ -29,12 +30,19 @@ export async function PATCH(req:Request){
 	try{
 		const admin=await requireAdmin();
 		const input=schema.parse(await req.json());
+		const candidate=await db.fundingRequest.findUnique({where:{id:input.id},select:{id:true,userId:true,type:true,accountMode:true,status:true}});
+		if(candidate?.accountMode===AccountMode.REAL&&input.decision==='APPROVED'){
+			const isDeposit=candidate.type===FundingType.DEPOSIT;
+			await db.auditLog.create({data:{actorId:admin.id,action:isDeposit?'REAL_DEPOSIT_APPROVAL_BLOCKED':'REAL_WITHDRAWAL_APPROVAL_BLOCKED',entity:'FUNDING',entityId:candidate.id,metadata:{accountMode:AccountMode.REAL,reason:isDeposit?'PAYMENT_PROVIDER_CONFIRMATION_UNAVAILABLE':'PAYOUT_PROVIDER_UNAVAILABLE'}}});
+			return NextResponse.json({error:isDeposit?'REAL_DEPOSIT_PROVIDER_UNAVAILABLE':'REAL_WITHDRAWAL_PROVIDER_UNAVAILABLE'},{status:409});
+		}
 		const request=await db.$transaction(async tx=>{
 			const current=await tx.fundingRequest.findUnique({where:{id:input.id}});
 			if(!current||!pendingStatuses.includes(current.status))throw new Error('FUNDING_NOT_PENDING');
 			if(current.accountMode===AccountMode.REAL){
-				const fundingUser=await tx.user.findUnique({where:{id:current.userId},select:{kycStatus:true}});
-				if(fundingUser?.kycStatus!=='APPROVED')throw new Error('REAL_KYC_REQUIRED');
+				const fundingUser=await tx.user.findUnique({where:{id:current.userId},select:{kycStatus:true,withdrawalEnabled:true,accountRestricted:true,kyc:{select:{submittedAt:true}},kycDocuments:{where:{kind:'IDENTITY_DOCUMENT',status:'APPROVED'},select:{id:true},take:1}}});
+				if(fundingUser?.kycStatus!=='APPROVED'||!fundingUser.kyc?.submittedAt||fundingUser.kycDocuments.length===0)throw new Error('REAL_KYC_REQUIRED');
+				if(current.type===FundingType.WITHDRAWAL&&(!fundingUser.withdrawalEnabled||fundingUser.accountRestricted))throw new Error('WITHDRAWAL_RESTRICTED');
 			}
 			const changed=await tx.fundingRequest.updateMany({where:{id:current.id,status:{in:pendingStatuses}},data:{status:input.decision,adminNote:input.note||null,reviewedAt:new Date(),verifiedAt:input.decision==='APPROVED'&&current.type===FundingType.DEPOSIT?new Date():null}});
 			if(changed.count!==1)throw new Error('FUNDING_ALREADY_REVIEWED');
@@ -63,7 +71,7 @@ export async function PATCH(req:Request){
 		return NextResponse.json({...jsonSafe(safeRequest),hasReceipt:!!receiptKey,emailDelivery:delivery.sent?'sent':delivery.reason||'failed'},{headers:{'Cache-Control':'private, no-store'}});
 	}catch(error){
 		if(error instanceof ZodError)return NextResponse.json({error:'Invalid review details.'},{status:400});
-		if(error instanceof Error&&['FUNDING_NOT_PENDING','FUNDING_ALREADY_REVIEWED','INSUFFICIENT_FUNDS','REAL_KYC_REQUIRED'].includes(error.message))return NextResponse.json({error:error.message.replaceAll('_',' ').toLowerCase()},{status:409});
+		if(error instanceof Error&&['FUNDING_NOT_PENDING','FUNDING_ALREADY_REVIEWED','INSUFFICIENT_FUNDS','REAL_KYC_REQUIRED','WITHDRAWAL_RESTRICTED'].includes(error.message))return NextResponse.json({error:error.message.replaceAll('_',' ').toLowerCase()},{status:409});
 		return NextResponse.json({error:'Funding review failed.'},{status:400});
 	}
 }

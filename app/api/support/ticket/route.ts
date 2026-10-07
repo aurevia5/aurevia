@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {NextResponse} from 'next/server';
 import {NotificationType,SupportAuthor,SupportCategory,SupportStatus} from '@prisma/client';
 import {z,ZodError} from 'zod';
@@ -6,7 +5,7 @@ import {requireUser} from '@/lib/auth';
 import {db} from '@/lib/db';
 import {notifyActiveAdmins,createNotification} from '@/lib/notifications';
 import {sendComplaintEmail,sendSupportEmail} from '@/lib/email';
-import {deletePrivateObject,PrivateStorageError,uploadPrivateObject} from '@/lib/private-storage';
+import {createPrivateObjectKey,deletePrivateObject,hasMatchingFileExtension,PrivateStorageError,uploadPrivateObject} from '@/lib/private-storage';
 
 const maxAttachmentBytes=5*1024*1024;
 const schema=z.object({action:z.enum(['ticket','complaint']),category:z.nativeEnum(SupportCategory).default(SupportCategory.GENERAL),subject:z.string().trim().min(3).max(120),message:z.string().trim().min(3).max(4000),transactionId:z.string().min(1).optional()});
@@ -21,8 +20,10 @@ function attachmentType(bytes:Buffer):{mime:string;extension:string}|null{
 
 export async function POST(request:Request){
 	let attachmentKey:string|undefined;
+	let ownerId:string|undefined;
 	try{
 		const user=await requireUser();
+		ownerId=user.id;
 		const contentLength=Number(request.headers.get('content-length')||0);
 		if(contentLength>maxAttachmentBytes+64*1024)return NextResponse.json({error:'Attachment must be 5 MB or smaller.'},{status:413});
 		const form=await request.formData();
@@ -37,16 +38,18 @@ export async function POST(request:Request){
 			if(!file.size||file.size>maxAttachmentBytes)return NextResponse.json({error:'Attachment must be non-empty and no larger than 5 MB.'},{status:400});
 			bytes=Buffer.from(await file.arrayBuffer());
 			const detected=attachmentType(bytes);
-			if(!detected||file.type!==detected.mime)return NextResponse.json({error:'Attachment must be a valid PDF, PNG, JPEG, or WebP file.'},{status:415});
+			if(!detected||file.type!==detected.mime||!hasMatchingFileExtension(file.name,detected.mime))return NextResponse.json({error:'Attachment must be a valid PDF, PNG, JPEG, or WebP file with a matching extension.'},{status:415});
 			contentType=detected.mime;
-			attachmentKey=`support/${user.id}/${randomUUID()}.${detected.extension}`;
-			await uploadPrivateObject(attachmentKey,bytes,contentType);
 		}
 		const isComplaint=input.action==='complaint';
 		const subject=isComplaint?`[Complaint: ${input.category}] ${input.subject}`:input.subject;
 		if(input.transactionId){
 			const funding=await db.fundingRequest.findFirst({where:{id:input.transactionId,userId:user.id,accountMode:user.accountMode},select:{id:true}});
 			if(!funding)return NextResponse.json({error:'Transaction not found.'},{status:404});
+		}
+		if(bytes&&contentType){
+			attachmentKey=createPrivateObjectKey('support',user.id,contentType);
+			await uploadPrivateObject('support',user.id,attachmentKey,bytes,contentType);
 		}
 		const conversation=await db.$transaction(async tx=>{
 			const created=await tx.supportConversation.create({data:{userId:user.id,accountMode:user.accountMode,subject,category:input.category,isComplaint,transactionId:input.transactionId||null,attachmentKey:attachmentKey||null,status:SupportStatus.AWAITING_ADMIN,messages:{create:{authorType:SupportAuthor.USER,authorId:user.id,body:input.message}}},select:{id:true,subject:true,status:true,createdAt:true}});
@@ -58,7 +61,7 @@ export async function POST(request:Request){
 		const delivery=await (isComplaint?sendComplaintEmail:sendSupportEmail)(subject,[`Ticket: ${conversation.id}`,`User: ${user.id}`,`Account mode: ${user.accountMode}`,`Category: ${input.category}`,`Attachment: ${attachmentKey?'available in the authenticated admin inbox':'none'}`,`\n${input.message}`].join('\n'));
 		return NextResponse.json({...conversation,isComplaint,hasAttachment:!!attachmentKey,emailDelivery:delivery.sent?'sent':delivery.reason||'failed'},{status:201});
 	}catch(error){
-		if(attachmentKey)await deletePrivateObject(attachmentKey);
+		if(attachmentKey&&ownerId)await deletePrivateObject('support',ownerId,attachmentKey);
 		if(error instanceof ZodError)return NextResponse.json({error:'Check the ticket category, subject, and message.'},{status:400});
 		if(error instanceof Error&&error.message==='UNAUTHORIZED')return NextResponse.json({error:'Sign in to open a private support ticket.'},{status:401});
 		if(error instanceof PrivateStorageError)return NextResponse.json({error:error.message},{status:error.status});

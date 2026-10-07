@@ -1,11 +1,13 @@
 import {randomUUID} from 'node:crypto';
-import {test,expect,loginAs,logout,expectNoHorizontalOverflow} from './fixtures';
+import {test,expect,loginAs,logout,waitForStartup,expectNoHorizontalOverflow} from './fixtures';
 
 const viewports=[
 	{width:320,height:800},
 	{width:360,height:800},
 	{width:375,height:812},
 	{width:390,height:844},
+	{width:393,height:852},
+	{width:430,height:932},
 	{width:414,height:896},
 	{width:768,height:1024},
 	{width:1024,height:900},
@@ -15,7 +17,7 @@ const viewports=[
 ];
 
 const publicRoutes=['/','/login','/register','/markets','/client-stories','/about','/education','/support','/terms','/privacy','/risk-disclosure'];
-const authenticatedRoutes=['/dashboard','/trade','/markets','/portfolio','/orders','/investments','/wallet','/wallet/transactions','/kyc','/settings','/support','/notifications'];
+const authenticatedRoutes=['/dashboard','/trade','/markets','/portfolio','/orders','/investments','/wallet','/wallet/transactions','/kyc','/tier','/settings','/support','/notifications'];
 const adminRoutes=['/admin/login','/admin','/admin/investments','/admin/payments','/admin/support'];
 
 function fixture(name:string){
@@ -54,6 +56,56 @@ test('mobile navigation opens and navigates to Login',async({page})=>{
 	await expect(page).toHaveURL(/\/login$/);
 	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
 	await expectNoHorizontalOverflow(page);
+});
+
+test('startup waits for session initialization, then stays dismissed across navigation and refresh',async({page})=>{
+	await page.emulateMedia({reducedMotion:'reduce'});
+	let releaseSession!:()=>void;
+	const sessionGate=new Promise<void>(resolve=>{releaseSession=resolve});
+	await page.route('**/api/auth/session',async route=>{
+		await sessionGate;
+		await route.fulfill({status:200,contentType:'application/json',body:'{}'});
+	});
+	await page.goto('/login');
+	const startup=page.getByRole('status',{name:'Loading Aurevia Invest'});
+	await expect(startup).toBeVisible();
+	releaseSession();
+	await expect(startup).toBeHidden();
+	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
+	await page.getByRole('link',{name:'Create an account'}).click();
+	await expect(page.getByRole('heading',{name:'Open an account'})).toBeVisible();
+	await expect(startup).toBeHidden();
+	await page.goBack();
+	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
+	await expect(startup).toBeHidden();
+});
+
+test('market refresh runs in place without reloading the page',async({page})=>{
+	let documentRequests=0;
+	let quoteRequests=0;
+	let historyRequests=0;
+	page.on('request',request=>{if(request.resourceType()==='document')documentRequests++});
+	await page.route(/\/api\/live-markets\?symbols=/,route=>{
+		quoteRequests++;
+		return route.fulfill({status:200,contentType:'application/json',body:'{"quotes":[],"source":"isolated UI test"}'});
+	});
+	await page.route(/\/api\/live-markets\/[^?]+\?timeframe=/,async route=>{
+		const timeframe=new URL(route.request().url()).searchParams.get('timeframe');
+		historyRequests++;
+		await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({quote:null,candles:[],timeframe,interval:'1m'})});
+	});
+	await page.goto('/markets');
+	await waitForStartup(page);
+	const beforeRetry=documentRequests;
+	await expect.poll(()=>historyRequests).toBeGreaterThan(0);
+	const priorQuotes=quoteRequests;
+	const priorHistory=historyRequests;
+	await page.getByRole('button',{name:'Actualizar cotizaciones'}).click();
+	await expect.poll(()=>quoteRequests).toBeGreaterThan(priorQuotes);
+	await expect.poll(()=>historyRequests).toBeGreaterThan(priorHistory);
+	expect(documentRequests).toBe(beforeRetry);
 });
 
 test('country selector searches Nigeria and United Kingdom and shows their dialing codes',async({page})=>{
@@ -231,18 +283,18 @@ test('session replacement is explicit and refresh-safe',async({page,browser})=>{
 	}finally{await otherContext.close();}
 });
 
-test('authenticated routes render at mobile, tablet, and desktop sizes',async({page})=>{
-	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
-	for(const viewport of viewports){
+for(const viewport of viewports){
+	test(`authenticated routes render without horizontal overflow at ${viewport.width}x${viewport.height}`,async({page})=>{
 		await page.setViewportSize(viewport);
+		await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 		for(const route of authenticatedRoutes){
 			const response=await page.goto(route);
 			expect(response?.status(),route).toBe(200);
 			await expect(page.locator('h1').first(),route).toBeVisible();
 			await expectNoHorizontalOverflow(page);
 		}
-	}
-});
+	});
+}
 
 test('notifications bell, unread state, mark one/all, and history persist',async({page})=>{
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
@@ -270,7 +322,14 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	const mode=page.getByLabel('Account mode');
 	await page.goto('/wallet');
 	await expect(page.getByText('DEMO ACCOUNT',{exact:true}).last()).toBeVisible();
+	let releaseModeUpdate!:()=>void;
+	const modeUpdateGate=new Promise<void>(resolve=>{releaseModeUpdate=resolve});
+	await page.route('**/api/account/mode',async route=>{await modeUpdateGate;await route.continue()});
 	await mode.selectOption('REAL');
+	await expect(mode).toBeDisabled();
+	releaseModeUpdate();
+	await page.unroute('**/api/account/mode');
+	await expect(mode).toHaveValue('REAL');
 	await expect(page.getByText('REAL ACCOUNT',{exact:true}).last()).toBeVisible();
 	await expect(page.locator('.wallet-balance-value')).toHaveText('0.00 USD');
 	const instrumentsResponse=await page.request.get('/api/market');
@@ -285,7 +344,8 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	await expect(page.locator('.account-heading .status-pill')).toContainText('DEMO ACCOUNT');
 	await page.goto('/trade');
 	await mode.selectOption('REAL');
-	await expect(page.getByRole('button',{name:'REAL trading unavailable'})).toBeDisabled();
+	await expect(page.getByText('REAL execution status',{exact:true})).toBeVisible();
+	await expect(page.getByRole('button',{name:'Place BUY order'})).toHaveCount(0);
 	await mode.selectOption('DEMO');
 	await expect(page.getByRole('button',{name:'Place BUY order'})).toBeEnabled();
 	await page.goto('/support');
@@ -299,6 +359,51 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	await expect(page.getByRole('button').filter({hasText:subject})).toHaveCount(0);
 	await mode.selectOption('DEMO');
 	await expect(page.getByRole('button').filter({hasText:subject})).toBeVisible();
+});
+
+test('REAL provider status is admin-only and unconfirmed REAL funding cannot post or settle',async({browser,page})=>{
+	await loginAs(page,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
+	expect((await page.request.get('/api/admin/providers/status')).status()).toBe(403);
+	expect((await page.request.post('/api/webhooks/broker/unconfigured',{data:{eventId:'synthetic-test-event'}})).status()).toBe(503);
+	await page.getByLabel('Account mode').selectOption('REAL');
+	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+	const instruments=await page.request.get('/api/market').then(response=>response.json());
+	const blockedOrder=await page.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:instruments[0].id,side:'BUY',type:'MARKET',quantity:1}});
+	expect(blockedOrder.status()).toBe(400);
+	expect((await blockedOrder.json()).error).toContain('REAL_EXECUTION_UNAVAILABLE');
+	const secondBlockedOrder=await page.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:instruments[0].id,side:'BUY',type:'MARKET',quantity:1}});
+	expect(secondBlockedOrder.status()).toBe(400);
+	expect(await page.request.get('/api/orders').then(response=>response.json())).toHaveLength(0);
+
+	const adminContext=await browser.newContext();
+	try{
+		const adminPage=await adminContext.newPage();
+		await loginAs(adminPage,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+		const statusResponse=await adminPage.request.get('/api/admin/providers/status');
+		expect(statusResponse.ok()).toBe(true);
+		const status=await statusResponse.json();
+		expect(status.realExecution).toMatchObject({status:'DISABLED',enabled:false,executionPathEnabled:false,adapterRegistered:false});
+		expect(status.funding).toMatchObject({status:'NOT_CONFIGURED',realDepositsCreditOnlyOnProviderConfirmation:true});
+		expect(status.investments).toMatchObject({status:'NOT_CONFIGURED',realLifecycleActionsEnabled:false});
+		expect(status.realExecution.configuredVariables).toHaveProperty('BROKER_API_KEY');
+		expect(JSON.stringify(status)).not.toContain('://');
+
+		const depositApproval=await adminPage.request.patch('/api/admin/funding',{data:{id:fixture('REAL_DEPOSIT_ID'),decision:'APPROVED'}});
+		expect(depositApproval.status()).toBe(409);
+		expect((await depositApproval.json()).error).toBe('REAL_DEPOSIT_PROVIDER_UNAVAILABLE');
+		const withdrawalApproval=await adminPage.request.patch('/api/admin/funding',{data:{id:fixture('REAL_WITHDRAWAL_ID'),decision:'APPROVED'}});
+		expect(withdrawalApproval.status()).toBe(409);
+		expect((await withdrawalApproval.json()).error).toBe('REAL_WITHDRAWAL_PROVIDER_UNAVAILABLE');
+		const settlement=await adminPage.request.post('/api/admin/funding/settle',{data:{id:fixture('REAL_WITHDRAWAL_ID'),settlementReference:'TEST-REFERENCE'}});
+		expect(settlement.status()).toBe(503);
+		expect((await settlement.json()).error).toBe('REAL_WITHDRAWAL_PROVIDER_UNAVAILABLE');
+		const fundingHistory=await adminPage.request.get('/api/admin/funding?history=true').then(response=>response.json());
+		expect(fundingHistory.find((row:{id:string})=>row.id===fixture('REAL_DEPOSIT_ID')).status).toBe('PENDING_REVIEW');
+		expect(fundingHistory.find((row:{id:string})=>row.id===fixture('REAL_WITHDRAWAL_ID'))).toMatchObject({status:'PENDING_REVIEW',settlementReference:null,settledAt:null});
+	}finally{await adminContext.close();}
+
+	await page.getByLabel('Account mode').selectOption('DEMO');
+	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
 });
 
 test('DEMO trading supports cash-backed buy and owned-unit sell execution',async({browser,page})=>{
@@ -353,8 +458,40 @@ test('DEMO trading supports cash-backed buy and owned-unit sell execution',async
 			const response=await tradePage.request.get('/api/market/activity');
 			return (await response.json()).activity;
 		}).toHaveLength(0);
+		await page.getByLabel('Account mode').selectOption('DEMO');
 		await expectNoHorizontalOverflow(page);
 	}finally{if(!tradePage.isClosed())await tradePage.close();}
+});
+
+test('closing a DEMO position records a sell execution, reconciles portfolio, and notifies',async({page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	const initialWallet=await page.request.get('/api/wallet').then(response=>response.json());
+	expect(Number(initialWallet.balance)).toBeGreaterThan(0);
+	const instruments=await page.request.get('/api/market').then(response=>response.json());
+	const instrument=instruments.find((item:{symbol:string})=>item.symbol===fixture('INSTRUMENT_A'));
+	expect(instrument).toBeTruthy();
+	const buy=await page.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:instrument.id,side:'BUY',type:'MARKET',quantity:1,expectedPrice:Number(instrument.price),observedAt:instrument.lastUpdatedAt}});
+	expect(buy.ok()).toBeTruthy();
+	expect((await buy.json()).status).toBe('FILLED');
+	const afterBuyWallet=await page.request.get('/api/wallet').then(response=>response.json());
+	expect(Number(afterBuyWallet.balance)).toBeLessThan(5000);
+	const positions=await page.request.get('/api/positions').then(response=>response.json());
+	expect(positions).toHaveLength(1);
+	const openPortfolio=await page.request.get('/api/portfolio').then(response=>response.json());
+	expect(Number(openPortfolio.totalValue)).toBeCloseTo(Number(openPortfolio.cashBalance)+Number(openPortfolio.positionValue),2);
+
+	const close=await page.request.post('/api/positions',{data:{positionId:positions[0].id}});
+	expect(close.ok()).toBeTruthy();
+	expect((await page.request.get('/api/positions').then(response=>response.json()))).toHaveLength(0);
+	const orders=await page.request.get('/api/orders').then(response=>response.json());
+	const closeOrder=orders.find((order:{side:string;instrumentId:string;status:string})=>order.side==='SELL'&&order.instrumentId===instrument.id&&order.status==='FILLED');
+	expect(closeOrder).toBeTruthy();
+	expect(closeOrder.executions).toHaveLength(1);
+	const closedPortfolio=await page.request.get('/api/portfolio').then(response=>response.json());
+	expect(Number(closedPortfolio.positionValue)).toBe(0);
+	expect(closedPortfolio.realizedPnl).not.toBeNull();
+	const notificationResponse=await page.request.get('/api/notifications?limit=100').then(response=>response.json());
+	expect(notificationResponse.notifications.some((item:{title:string;relatedId:string|null})=>item.relatedId===closeOrder.id&&item.title==='Demo position closed')).toBe(true);
 });
 
 test('investment requests remain mode-isolated through admin review without fake REAL settlement',async({browser,page})=>{
@@ -409,7 +546,7 @@ test('investment requests remain mode-isolated through admin review without fake
 		await page.getByLabel('Account mode').selectOption('REAL');
 			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
 		await page.goto('/investments');
-		await expect(page.getByText('REAL requests require approved identity verification')).toBeVisible();
+		await expect(page.getByText(/administrator review of an identity profile, not external KYC\/AML clearance/i)).toBeVisible();
 		const realRequestResponse=await page.request.post('/api/investments',{headers:{'Idempotency-Key':randomUUID()},data:{opportunityId:opportunity.id,amount:500}});
 		expect(realRequestResponse.status()).toBe(201);
 		const realRequest=await realRequestResponse.json();
@@ -418,6 +555,12 @@ test('investment requests remain mode-isolated through admin review without fake
 		await review(realRequest.id,'approve');
 		const unreferencedActivation=await adminPage.request.patch('/api/admin/investments',{data:{requestId:realRequest.id,action:'activate'}});
 		expect(unreferencedActivation.status()).toBe(409);
+		const fabricatedActivation=await adminPage.request.patch('/api/admin/investments',{data:{requestId:realRequest.id,action:'activate',executionReference:'UNVERIFIED-REFERENCE'}});
+		expect(fabricatedActivation.status()).toBe(409);
+		expect((await fabricatedActivation.json()).error).toBe('REAL_INVESTMENT_PROVIDER_UNAVAILABLE');
+		const fabricatedSettlement=await adminPage.request.patch('/api/admin/investments',{data:{requestId:realRequest.id,action:'settle',settlementReference:'UNVERIFIED-SETTLEMENT',simulatedPayout:600}});
+		expect(fabricatedSettlement.status()).toBe(409);
+		expect((await fabricatedSettlement.json()).error).toBe('REAL_INVESTMENT_PROVIDER_UNAVAILABLE');
 		await review(realRequest.id,'cancel');
 		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
 
@@ -504,4 +647,148 @@ test('admin pages render for authenticated administrator at requested viewports'
 			await expectNoHorizontalOverflow(page);
 		}
 	}
+});
+
+test('DEMO order idempotency prevents duplicate fills and user history stays isolated',async({browser,page})=>{
+	await loginAs(page,fixture('LEGACY_USER_EMAIL'),fixture('LEGACY_USER_PASSWORD'));
+	const startingBalance=Number((await page.request.get('/api/wallet').then(response=>response.json())).balance);
+	expect(startingBalance).toBe(5000);
+	const symbol=fixture('INSTRUMENT_A');
+	const instruments=await page.request.get('/api/market').then(response=>response.json());
+	const instrument=instruments.find((item:{symbol:string})=>item.symbol===symbol);
+	expect(instrument).toBeTruthy();
+	const key=randomUUID();
+	const payload={instrumentId:instrument.id,side:'BUY',type:'MARKET',quantity:1,expectedPrice:Number(instrument.price),observedAt:instrument.lastUpdatedAt};
+	const first=await page.request.post('/api/orders',{headers:{'Idempotency-Key':key},data:payload});
+	const replay=await page.request.post('/api/orders',{headers:{'Idempotency-Key':key},data:payload});
+	expect(first.status()).toBe(201);
+	expect(replay.status()).toBe(201);
+	const firstOrder=await first.json();
+	const replayOrder=await replay.json();
+	expect(replayOrder.id).toBe(firstOrder.id);
+	expect(replayOrder.executions).toHaveLength(1);
+	const afterBalance=Number((await page.request.get('/api/wallet').then(response=>response.json())).balance);
+	expect(afterBalance).toBeLessThan(startingBalance);
+	expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(afterBalance);
+	expect(await page.request.get('/api/orders').then(response=>response.json()).then((orders:Array<{id:string}>)=>orders.filter(order=>order.id===firstOrder.id))).toHaveLength(1);
+	let position=(await page.request.get('/api/positions').then(response=>response.json()))[0];
+	expect(Number(position.quantity)).toBe(1);
+
+	const updatedMarket=await page.request.get('/api/market').then(response=>response.json());
+	const updatedInstrument=updatedMarket.find((item:{symbol:string})=>item.symbol===symbol);
+	const secondBuy=await page.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:updatedInstrument.id,side:'BUY',type:'MARKET',quantity:1,expectedPrice:Number(updatedInstrument.price),observedAt:updatedInstrument.lastUpdatedAt}});
+	expect(secondBuy.status()).toBe(201);
+	position=(await page.request.get('/api/positions').then(response=>response.json()))[0];
+	expect(Number(position.quantity)).toBe(2);
+	const openPortfolio=await page.request.get('/api/portfolio').then(response=>response.json());
+	expect(Number(openPortfolio.totalValue)).toBeCloseTo(Number(openPortfolio.cashBalance)+Number(openPortfolio.positionValue),2);
+	expect(Number(openPortfolio.unrealizedPnl)).toBeCloseTo(Number(position.unrealizedPnl),2);
+
+	const sellMarket=await page.request.get('/api/market').then(response=>response.json());
+	const sellInstrument=sellMarket.find((item:{symbol:string})=>item.symbol===symbol);
+	const partialSell=await page.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:sellInstrument.id,side:'SELL',type:'MARKET',quantity:0.5,expectedPrice:Number(sellInstrument.price),observedAt:sellInstrument.lastUpdatedAt}});
+	expect(partialSell.status()).toBe(201);
+	position=(await page.request.get('/api/positions').then(response=>response.json()))[0];
+	expect(Number(position.quantity)).toBe(1.5);
+	expect(Number(position.realizedPnl)).not.toBe(0);
+	const close=await page.request.post('/api/positions',{data:{positionId:position.id}});
+	expect(close.ok()).toBeTruthy();
+	expect(await page.request.get('/api/positions').then(response=>response.json())).toHaveLength(0);
+	const closedPortfolio=await page.request.get('/api/portfolio').then(response=>response.json());
+	expect(Number(closedPortfolio.positionValue)).toBe(0);
+	expect(Number(closedPortfolio.realizedPnl)).not.toBe(0);
+
+	const otherContext=await browser.newContext();
+	try{
+		const otherPage=await otherContext.newPage();
+		await loginAs(otherPage,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+		const otherOrders=await otherPage.request.get('/api/orders').then(response=>response.json());
+		expect(otherOrders.some((order:{id:string})=>order.id===firstOrder.id)).toBe(false);
+	}finally{await otherContext.close();}
+});
+
+test('wallet deposit and withdrawal requests remain pending and idempotent without posting money',async({browser,page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await page.getByLabel('Account mode').selectOption('DEMO');
+	const startingBalance=Number((await page.request.get('/api/wallet').then(response=>response.json())).balance);
+	const methods=await page.request.get('/api/payment-methods').then(response=>response.json());
+	expect(methods.length).toBeGreaterThan(0);
+	const method=methods[0];
+
+	const depositKey=randomUUID();
+	const depositPayload={type:'DEPOSIT',paymentMethodId:method.id,amount:100,currency:'USD'};
+	const deposit=await page.request.post('/api/wallet',{headers:{'Idempotency-Key':depositKey},data:depositPayload});
+	expect(deposit.status()).toBe(201);
+	const depositRequest=await deposit.json();
+	expect(depositRequest.status).toBe('PENDING_REVIEW');
+	expect(depositRequest.accountMode).toBe('DEMO');
+	const replay=await page.request.post('/api/wallet',{headers:{'Idempotency-Key':depositKey},data:depositPayload});
+	expect(replay.status()).toBe(200);
+	expect((await replay.json()).id).toBe(depositRequest.id);
+	expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(startingBalance);
+
+	const withdrawal=await page.request.post('/api/wallet',{headers:{'Idempotency-Key':randomUUID()},data:{type:'WITHDRAWAL',paymentMethodId:method.id,amount:10,currency:'USD'}});
+	expect(withdrawal.status()).toBe(201);
+	expect((await withdrawal.json()).status).toBe('PENDING_REVIEW');
+	expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(startingBalance);
+
+	const otherContext=await browser.newContext();
+	try{
+		const otherPage=await otherContext.newPage();
+		await loginAs(otherPage,fixture('LEGACY_USER_EMAIL'),fixture('LEGACY_USER_PASSWORD'));
+		const otherWallet=await otherPage.request.get('/api/wallet').then(response=>response.json());
+		expect(otherWallet.transactions).toHaveLength(0);
+	}finally{await otherContext.close();}
+});
+
+test('KYC document access is owner-scoped and private Storage fails closed without credentials',async({browser,page})=>{
+	const documentId=fixture('KYC_DOCUMENT_ID');
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	expect((await page.request.get(`/api/kyc/documents/${documentId}`)).status()).toBe(404);
+	expect((await page.request.get(`/api/admin/kyc/documents/${documentId}`)).status()).toBe(403);
+
+	const unauthenticatedContext=await browser.newContext();
+	try{
+		const unauthenticatedPage=await unauthenticatedContext.newPage();
+		expect((await unauthenticatedPage.request.get(`/api/kyc/documents/${documentId}`)).status()).toBe(401);
+	}finally{await unauthenticatedContext.close();}
+
+	const investorContext=await browser.newContext();
+	try{
+		const investorPage=await investorContext.newPage();
+		await loginAs(investorPage,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
+		const documents=await investorPage.request.get('/api/kyc/documents').then(response=>response.json());
+		expect(documents.map((document:{id:string})=>document.id)).toContain(documentId);
+		const ownerAccess=await investorPage.request.get(`/api/kyc/documents/${documentId}`);
+		expect(ownerAccess.status()).toBe(503);
+		expect((await ownerAccess.json()).error).toContain('Private file storage is not configured');
+
+		const upload=await investorPage.request.post('/api/kyc/documents',{multipart:{
+			kind:'IDENTITY_DOCUMENT',
+			file:{name:'temporary-e2e.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4\\nDisposable E2E document\\n%%EOF\\n')},
+		}});
+		expect(upload.status()).toBe(503);
+		expect((await investorPage.request.get('/api/kyc/documents').then(response=>response.json()))).toHaveLength(documents.length);
+	}finally{await investorContext.close();}
+
+	const adminContext=await browser.newContext();
+	try{
+		const adminPage=await adminContext.newPage();
+		await loginAs(adminPage,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+		const adminAccess=await adminPage.request.get(`/api/admin/kyc/documents/${documentId}`);
+		expect(adminAccess.status()).toBe(503);
+		expect((await adminAccess.json()).error).toContain('Private file storage is not configured');
+	}finally{await adminContext.close();}
+});
+
+test('profile settings persist for the owner and remain inaccessible to signed-out clients',async({browser,page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	const updated=await page.request.patch('/api/profile',{data:{name:'Temporary Settings Update',country:'Test Country',address:'Isolated test address',twoFactorEnabled:false}});
+	expect(updated.ok()).toBeTruthy();
+	expect((await page.request.get('/api/profile').then(response=>response.json())).name).toBe('Temporary Settings Update');
+	const signedOutContext=await browser.newContext();
+	try{
+		const signedOutPage=await signedOutContext.newPage();
+		expect((await signedOutPage.request.get('/api/profile')).status()).toBe(401);
+	}finally{await signedOutContext.close();}
 });

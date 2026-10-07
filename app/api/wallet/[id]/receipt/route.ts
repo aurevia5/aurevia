@@ -1,11 +1,10 @@
-import {randomUUID} from 'node:crypto';
 import {NextResponse} from 'next/server';
 import {FundingStatus,FundingType,NotificationType} from '@prisma/client';
 import {requireUser} from '@/lib/auth';
 import {db} from '@/lib/db';
 import {createNotification,notifyActiveAdmins} from '@/lib/notifications';
 import {sendSupportEmail} from '@/lib/email';
-import {createPrivateSignedUrl,deletePrivateObject,PrivateStorageError,uploadPrivateObject} from '@/lib/private-storage';
+import {createPrivateObjectKey,createPrivateSignedUrl,deletePrivateObject,hasMatchingFileExtension,PrivateStorageError,uploadPrivateObject} from '@/lib/private-storage';
 
 const maxUploadBytes=5*1024*1024;
 const reviewableStatuses=[FundingStatus.PENDING,FundingStatus.PENDING_REVIEW,FundingStatus.PROCESSING];
@@ -22,8 +21,10 @@ function detectFormat(bytes:Buffer):ReceiptFormat|null{
 
 export async function POST(request:Request,{params}:{params:{id:string}}){
 	let newKey:string|undefined;
+	let ownerId:string|undefined;
 	try{
 		const user=await requireUser();
+		ownerId=user.id;
 		const contentLength=Number(request.headers.get('content-length')||0);
 		if(contentLength>maxUploadBytes+64*1024)return NextResponse.json({error:'Receipt must be 5 MB or smaller.'},{status:413});
 		const form=await request.formData();
@@ -33,10 +34,10 @@ export async function POST(request:Request,{params}:{params:{id:string}}){
 		if(!requestRow)return NextResponse.json({error:'Pending deposit request not found.'},{status:404});
 		const bytes=Buffer.from(await file.arrayBuffer());
 		const format=detectFormat(bytes);
-		if(!format||fileTypes[format].mime!==file.type)return NextResponse.json({error:'Receipt must be a valid PDF, PNG, JPEG, or WebP file.'},{status:415});
-		const receiptKey=`receipts/${user.id}/${requestRow.id}/${randomUUID()}.${fileTypes[format].extension}`;
+		if(!format||fileTypes[format].mime!==file.type||!hasMatchingFileExtension(file.name,fileTypes[format].mime))return NextResponse.json({error:'Receipt must be a valid PDF, PNG, JPEG, or WebP file with a matching extension.'},{status:415});
+		const receiptKey=createPrivateObjectKey('receipt',user.id,fileTypes[format].mime);
 		newKey=receiptKey;
-		await uploadPrivateObject(receiptKey,bytes,fileTypes[format].mime);
+		await uploadPrivateObject('receipt',user.id,receiptKey,bytes,fileTypes[format].mime);
 		const updated=await db.$transaction(async tx=>{
 			const claimed=await tx.fundingRequest.updateMany({where:{id:requestRow.id,userId:user.id,type:FundingType.DEPOSIT,status:{in:reviewableStatuses}},data:{receiptKey}});
 			if(claimed.count!==1)throw new Error('RECEIPT_REQUEST_CHANGED');
@@ -45,11 +46,11 @@ export async function POST(request:Request,{params}:{params:{id:string}}){
 			await notifyActiveAdmins(tx,{type:NotificationType.DEPOSIT,title:'Payment receipt uploaded',message:`A deposit receipt for a ${requestRow.accountMode.toLowerCase()} request awaits review.`,dedupeKey:`funding:${requestRow.id}:receipt-admin:${receiptKey.split('/').at(-1)}`,relatedEntity:'FUNDING',relatedId:requestRow.id,actionUrl:'/admin'});
 			return {previousKey:requestRow.receiptKey};
 		});
-		if(updated.previousKey)await deletePrivateObject(updated.previousKey);
+		if(updated.previousKey)await deletePrivateObject('receipt',user.id,updated.previousKey);
 		const delivery=await sendSupportEmail('Payment receipt uploaded',`Funding request ${requestRow.id} has a receipt awaiting review. The receipt remains private and must be reviewed in the admin dashboard.`);
 		return NextResponse.json({ok:true,receiptUploaded:true,fundsCredited:false,emailDelivery:delivery.sent?'sent':delivery.reason||'failed'},{status:201});
 	}catch(error){
-		if(newKey)await deletePrivateObject(newKey);
+		if(newKey&&ownerId)await deletePrivateObject('receipt',ownerId,newKey);
 		if(error instanceof Error&&error.message==='UNAUTHORIZED')return NextResponse.json({error:'Sign in to upload a receipt.'},{status:401});
 		if(error instanceof Error&&error.message==='RECEIPT_REQUEST_CHANGED')return NextResponse.json({error:'The funding request changed. Refresh and try again.'},{status:409});
 		if(error instanceof PrivateStorageError)return NextResponse.json({error:error.message},{status:error.status});
@@ -61,10 +62,10 @@ export async function POST(request:Request,{params}:{params:{id:string}}){
 export async function GET(_request:Request,{params}:{params:{id:string}}){
 	try{
 		const user=await requireUser();
-		const funding=await db.fundingRequest.findFirst({where:{id:params.id,userId:user.id,accountMode:user.accountMode},select:{receiptKey:true}});
+		const funding=await db.fundingRequest.findFirst({where:{id:params.id,userId:user.id,accountMode:user.accountMode},select:{userId:true,receiptKey:true}});
 		if(!funding)return NextResponse.json({error:'Funding request not found.'},{status:404});
 		if(!funding.receiptKey)return NextResponse.json({error:'No receipt is attached to this request.'},{status:404});
-		return NextResponse.json({url:await createPrivateSignedUrl(funding.receiptKey)},{headers:{'Cache-Control':'private, no-store'}});
+		return NextResponse.json({url:await createPrivateSignedUrl('receipt',funding.userId,funding.receiptKey)},{headers:{'Cache-Control':'private, no-store'}});
 	}catch(error){
 		if(error instanceof Error&&error.message==='UNAUTHORIZED')return NextResponse.json({error:'Unauthorized'},{status:401});
 		if(error instanceof PrivateStorageError)return NextResponse.json({error:error.message},{status:error.status});

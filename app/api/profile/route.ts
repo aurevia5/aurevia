@@ -1,19 +1,21 @@
 import {NextResponse} from 'next/server';
-import {NotificationType} from '@prisma/client';
+import {AccountMode,NotificationType} from '@prisma/client';
 import {z,ZodError} from 'zod';
 import {requireUser} from '@/lib/auth';
 import {db} from '@/lib/db';
 import {createNotification} from '@/lib/notifications';
+import {getAccountTier} from '@/lib/production-policy';
 
 const schema=z.object({name:z.string().trim().min(2).max(120),phone:z.string().trim().max(40).optional(),country:z.string().trim().min(2).max(80),address:z.string().trim().max(500).optional(),twoFactorEnabled:z.boolean()});
 
 export async function GET(){
 	try{
 		const user=await requireUser();
-		const profile=await db.user.findUnique({where:{id:user.id},select:{id:true,email:true,name:true,phone:true,phoneVerified:true,country:true,avatarKey:true,twoFactorEnabled:true,role:true,status:true,kycStatus:true,verifiedAt:true,verifiedChannel:true,kyc:{select:{address:true}}}});
+		const profile=await db.user.findUnique({where:{id:user.id},select:{id:true,email:true,name:true,phone:true,phoneVerified:true,country:true,avatarKey:true,twoFactorEnabled:true,role:true,status:true,accountMode:true,kycStatus:true,verifiedAt:true,verifiedChannel:true,withdrawalEnabled:true,accountRestricted:true,restrictionReason:true,kycDocuments:{where:{kind:'IDENTITY_DOCUMENT',status:'APPROVED'},select:{id:true}},kyc:{select:{address:true,submittedAt:true}}}});
 		if(!profile)return NextResponse.json({error:'Profile not found.'},{status:404});
-		const {avatarKey,kyc,...safeProfile}=profile;
-		return NextResponse.json({...safeProfile,address:kyc?.address||null,hasAvatar:!!avatarKey},{headers:{'Cache-Control':'private, no-store'}});
+		const {avatarKey,kyc,kycDocuments,...safeProfile}=profile;
+		const tier=getAccountTier({accountMode:profile.accountMode as AccountMode,kycStatus:profile.kycStatus,verificationDocuments:profile.kycDocuments.length,verificationSubmitted:!!kyc?.submittedAt});
+		return NextResponse.json({...safeProfile,address:kyc?.address||null,hasAvatar:!!avatarKey,documents:profile.kycDocuments.length,verificationProfileSubmitted:!!kyc?.submittedAt,...tier},{headers:{'Cache-Control':'private, no-store'}});
 	}catch(error){
 		return NextResponse.json({error:error instanceof Error&&error.message==='UNAUTHORIZED'?'Unauthorized':'Unable to load profile.'},{status:error instanceof Error&&error.message==='UNAUTHORIZED'?401:503});
 	}

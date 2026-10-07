@@ -1,12 +1,13 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {getMarketAsset,getMarketHistory,getMarketQuote,MarketDataError} from '../lib/live-market';
 
-function chartResponse(price=41000){
+function chartResponse(price=41000,marketAgeSeconds=0){
 	const now=Math.floor(Date.now()/1000);
+	const marketTime=now-marketAgeSeconds;
 	return {
 		chart:{result:[{
-			meta:{regularMarketPrice:price,chartPreviousClose:40000,regularMarketChange:price-40000,regularMarketChangePercent:(price/40000-1)*100,regularMarketOpen:40500,regularMarketTime:now,fiftyTwoWeekLow:25000,fiftyTwoWeekHigh:60000,currency:'USD'},
-			timestamp:[now-60,now],
+			meta:{regularMarketPrice:price,chartPreviousClose:40000,regularMarketChange:price-40000,regularMarketChangePercent:(price/40000-1)*100,regularMarketOpen:40500,regularMarketTime:marketTime,fiftyTwoWeekLow:25000,fiftyTwoWeekHigh:60000,currency:'USD'},
+			timestamp:[marketTime-60,marketTime],
 			indicators:{quote:[{open:[40000,40500],high:[40500,41500],low:[39900,40400],close:[40400,price],volume:[12,34]}]},
 		}],error:null},
 	};
@@ -46,6 +47,14 @@ describe('live Yahoo market service',()=>{
 		expect(stale.price).toBe(current.price);
 		expect(stale.isStale).toBe(true);
 		expect(stale.staleReason).toContain('unreachable');
+	});
+
+	it('marks a successful provider response stale when its own quote timestamp is old',async()=>{
+		const asset={id:'OLD_PROVIDER_QUOTE_TEST',ticker:'OLD_PROVIDER_QUOTE_TEST',name:'Old provider quote test',type:'STOCK' as const,currency:'USD'};
+		vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify(chartResponse(123,6*60)),{status:200,headers:{'content-type':'application/json'}})));
+		const quote=await getMarketQuote(asset);
+		expect(quote.isStale).toBe(true);
+		expect(quote.staleReason).toContain('older than five minutes');
 	});
 
 	it('rejects unknown symbols at lookup',()=>{

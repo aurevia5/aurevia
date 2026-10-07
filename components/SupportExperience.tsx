@@ -13,7 +13,7 @@ type SupportContact={email:string;complaintsEmail:string;phone:string};
 
 function answerFor(question:string,mode:'DEMO'|'REAL'){
 	const text=question.toLowerCase();
-	if(/demo|real|account mode/.test(text))return 'DEMO uses a separate simulated ledger and simulated trading. REAL has its own ledger, requires approved identity verification for funding requests, and transactions remain pending until an administrator reviews them. Change the active mode in the navigation; balances and requests stay separate.';
+	if(/demo|real|account mode/.test(text))return 'DEMO uses a separate simulated ledger and simulated trading. REAL has a separate ledger; manual identity-profile review is not external KYC/AML clearance. REAL funding approval and settlement remain blocked until genuine providers are connected and confirm activity. Change the active mode in the navigation; balances and requests stay separate.';
 	if(/deposit|payment|bitcoin|bank/.test(text))return 'Open Wallet, choose Deposit, and select an administrator-configured method. The request is not a payment confirmation and does not affect your balance until an administrator reviews and approves it. No blockchain verification is connected.';
 	if(/withdraw|payout/.test(text))return 'Open Wallet, choose Withdraw, and provide the destination details. The amount is reserved while review is pending. It is debited only after administrator approval; this application does not send bank or cryptocurrency payouts.';
 	if(/kyc|identity|verification/.test(text))return 'Open Verification to submit the available identity details. REAL-account funding requests require administrator-approved verification. Document uploads and third-party identity checks are not configured.';

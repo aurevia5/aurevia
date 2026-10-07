@@ -50,8 +50,8 @@ export async function POST(request:Request){
    const amount=new Prisma.Decimal(input.amount);
    if(amount.lt(opportunity.minimumAmount)||(opportunity.maximumAmount&&amount.gt(opportunity.maximumAmount)))throw new Error('INVESTMENT_AMOUNT_OUT_OF_RANGE');
    if(user.accountMode===AccountMode.REAL){
-    const profile=await tx.user.findUnique({where:{id:user.id},select:{kycStatus:true}});
-    if(profile?.kycStatus!=='APPROVED')throw new Error('REAL_INVESTMENT_KYC_REQUIRED');
+    const profile=await tx.user.findUnique({where:{id:user.id},select:{kycStatus:true,kyc:{select:{submittedAt:true}},kycDocuments:{where:{kind:'IDENTITY_DOCUMENT',status:'APPROVED'},select:{id:true},take:1}}});
+    if(profile?.kycStatus!=='APPROVED'||!profile.kyc?.submittedAt||profile.kycDocuments.length===0)throw new Error('REAL_INVESTMENT_KYC_REQUIRED');
    }
     let status:InvestmentStatus=InvestmentStatus.PENDING_APPROVAL;
    let approvedAt:Date|undefined;

@@ -37,7 +37,7 @@ const questions=[
 	['What can I do with an Aurevia account?','You can review demo market information, submit simulated funding requests, manage verification details, and use the trading interface for supported demo instruments.'],
 	['How does verification work?','Submit your personal and identity details from Verification. The account status remains pending until an administrator reviews it.'],
 	['Are funding methods connected to a bank or wallet?','No. The available funding methods are simulations and do not connect to a bank, card network, crypto wallet, or custody provider.'],
-	['Is the market feed live?','No external market-data provider is configured. Prices shown in the demo are simulated and should not be treated as live quotes.'],
+	['Is the market feed live?','The Markets page requests informational quotes from Yahoo Finance, an unofficial provider that may be delayed or unavailable. Trading uses a separate simulated market feed; neither feed connects to a broker or executes real trades.'],
 	['Are trading fees shown?','The trading interface uses the fee settings configured for the demo instruments. Review the order estimate before submitting an order.'],
 	['Is this financial advice?','No. Platform information is general and educational, not individualized investment advice. Trading involves risk, including the possible loss of capital.'],
 ];

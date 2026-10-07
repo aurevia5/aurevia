@@ -7,7 +7,7 @@ Aurevia Invest is a Next.js 14 application using TypeScript, PostgreSQL, Prisma,
 ### User application
 - Landing page, registration and credential login
 - JWT sessions with USER/ADMIN role enforcement
-- KYC submission and review status
+- KYC profile submission, private identity-document uploads, and administrator review states
 - Profile and account settings
 - 2FA security flag
 - Live dashboard with cash equity and open positions
@@ -25,7 +25,8 @@ Aurevia Invest is a Next.js 14 application using TypeScript, PostgreSQL, Prisma,
 - Role-protected admin area
 - User list and freeze/unfreeze
 - Role changes
-- KYC approval/rejection
+- KYC profile and private document approval/rejection
+- Account restrictions and withdrawal enablement controls
 - Deposit/withdrawal approval queue
 - Force-close open positions
 - Instrument enable/disable and configuration API
@@ -71,13 +72,19 @@ The 2FA control currently stores the account-security flag. A real deployment mu
 - Docker Desktop or PostgreSQL 15+
 - npm
 
+## Isolated browser tests
+
+Run `npm run test:e2e:isolated` in a Codespace with Docker available. The command starts a disposable PostgreSQL 17 container bound only to a dynamically selected loopback port, creates random local credentials in a mode-`0600` temporary file, applies Prisma migrations only to that container, and then runs Playwright. The container uses temporary storage and is removed after the run. Neither `DATABASE_URL` nor `DIRECT_URL` in `.env` is changed or used for the test database.
+
+The isolated database bootstraps only the minimal Supabase Storage tables, private bucket metadata, and database roles required by the Storage-policy migration. The Playwright application process has Supabase URL/key configuration cleared, so file workflows fail closed and cannot access the shared Storage service. `npm run test:e2e` by itself continues to reject non-local or mismatched database URLs.
+
 ## Environment
 
 Copy `.env.example` to `.env`.
 
-Set the values shown in `.env.example` in your ignored `.env` file. `DATABASE_URL` is the application connection (use the Supabase pooler URL when appropriate); Prisma uses `DIRECT_URL` for migrations and introspection. Both point to the existing Supabase Postgres database. The application does not use a Supabase client or service-role key; database access stays on the server through Prisma.
+`.env.example` lists variable names only. Configure the values in the ignored `.env` file or your deployment's secret manager. `DATABASE_URL` is the application connection (use the Supabase pooler URL when appropriate); Prisma uses `DIRECT_URL` for migrations and introspection. Both must point to the intended Supabase Postgres database. The application does not use a browser Supabase client; database access stays on the server through Prisma.
 
-`NEXT_PUBLIC_SUPABASE_URL` identifies the configured Supabase project and is not a database credential. The application does not send it to a browser-side Supabase client. Never add a Supabase service-role/secret key to a `NEXT_PUBLIC_` variable.
+Only `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_SUPABASE_URL` are public configuration. All other values, especially database URLs, `NEXTAUTH_SECRET`, administrator credentials, SMTP credentials, verification API keys, and `SUPABASE_SERVICE_ROLE_KEY`, are server-only. Never put a Supabase service-role/secret key in a `NEXT_PUBLIC_` variable. The Data API roles `anon` and `authenticated` have no table or sequence privileges on the application's `public` schema, and row-level security is enabled for its tables; the application uses its server-side Prisma connection.
 
 `ADMIN_USERNAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` are used by the existing admin login and seed. Use a unique password of at least 12 characters. The seed updates the configured admin account, adopts an existing admin rather than creating another, and provisions an admin only when none exists.
 
@@ -85,7 +92,45 @@ Registration can complete without a verification challenge when no delivery prov
 
 For production, set `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` to the canonical HTTPS domain configured for that deployment. Production startup rejects a missing `NEXTAUTH_SECRET` or `NEXTAUTH_URL`; it never trusts an arbitrary Host header to establish the auth origin. Configure `SUPPORT_EMAIL` and `COMPLAINTS_EMAIL` separately from `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. When SMTP is missing, password recovery is unavailable and support/funding actions report that no email was sent; in-app tickets and notifications remain recorded.
 
-Private receipt, support attachment, and profile avatar uploads require a private Supabase Storage bucket named by `SUPABASE_PRIVATE_BUCKET` (default `aurevia-private`), `SUPABASE_URL` (or the existing project URL), and server-only `SUPABASE_SERVICE_ROLE_KEY`. Never use a public bucket or expose that key to a browser. Upload APIs validate file signatures and size, store opaque keys in Postgres, and return only short-lived signed URLs after owner/admin checks. Apply Storage policies appropriate to the trusted server service-role model and keep the bucket private.
+### Render deployment
+
+Use a Render **Node web service** connected to the existing GitHub repository. Render's persistent web service supports this custom Next.js/Socket.IO HTTP server and WebSocket upgrades; do not deploy it as a static site or serverless function. Use one instance while the in-process Socket.IO market engine is enabled; horizontal scaling requires a shared Socket.IO adapter and coordinated market worker, which are not currently configured.
+
+- Build command: `npm ci && npm run build`
+- Start command: `npm start`
+- Docker is not required for Render's native Node runtime. The checked-in multi-stage `Dockerfile` is an alternative if the Render service is explicitly configured as a Docker service.
+
+Configure these variables in Render's environment settings (secrets stay in Render, never in source):
+
+- Required: `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- Optional according to enabled features: `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, SMTP/support variables, verification-delivery variables, `PHONE_VERIFICATION_REQUIRED`, and `MARKET_TICK_MS`.
+
+Set both `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` to the same canonical HTTPS origin assigned to the Render service (or its verified custom domain). The database URLs must be the existing Supabase PostgreSQL connections; use Supabase's pooler for application traffic when appropriate and its direct connection for Prisma schema management. Render injects these at runtime and `npm start` preserves them. Do not run `npm run db:migrate`, `db:push`, or a reset command automatically during release; schema changes require a separately reviewed and authorized operation.
+
+The development command deliberately ignores inherited database URLs so Codespaces can load its repository `.env`. The Docker build context excludes `.env*`; supply runtime configuration only through Render's environment settings. The application has no production localhost URL dependency: its localhost URL fallback is for local development, and production startup requires `NEXTAUTH_URL`.
+
+### REAL provider readiness
+
+REAL execution is disabled in the application even if broker settings are present: `/api/orders` and the trading engine remain DEMO-only until a provider-specific integration, compliance review, and explicit execution enablement are implemented and tested. The current provider interfaces describe broker order submission/cancellation/status, balances/positions, reconciliation, quotes/bars, funding confirmations, identity/sanctions checks, and webhook signature verification; no external adapter is registered. The admin-only `/api/admin/providers/status` endpoint and Provider readiness panel report state/configuration presence without returning credential values. The broker webhook route verifies events only when a connected adapter is installed; it does not persist or reconcile events yet.
+
+The names reserved for server-only broker configuration are `REAL_EXECUTION_ENABLED`, `BROKER_PROVIDER`, `BROKER_API_URL`, `BROKER_API_KEY`, `BROKER_ACCOUNT_ID`, and `BROKER_WEBHOOK_SECRET`. Payment-provider names are `PAYMENT_PROVIDER`, `PAYMENT_API_URL`, `PAYMENT_API_KEY`, and `PAYMENT_WEBHOOK_SECRET`. They are placeholders, not evidence that a provider is integrated or connected. No provider has been selected because intended customer jurisdictions are not specified. Select jurisdictions and obtain legal/compliance approval before evaluating broker, payment, market-data, and identity/AML providers. Manual administrator review cannot confirm a REAL deposit: REAL deposit approval and withdrawal approval/settlement are blocked pending provider integration. REAL investment requests may be reviewed but cannot be activated, completed, or settled until an investment-provider workflow exists. Manual KYC status is explicitly an administrator review and is not external identity/AML or regulatory verification.
+
+Private file workflows require server-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. The key must never be placed in a `NEXT_PUBLIC_*` variable or imported into client components. Configure these existing private buckets (the application does not create buckets): `kyc-documents` (10 MB), `profile-avatars` (5 MB), `wallet-receipts` (10 MB), and `support-attachments` (10 MB). Their restrictive `storage.objects` RLS policies are `aurevia_kyc_documents_block_client_access`, `aurevia_profile_avatars_block_client_access`, `aurevia_wallet_receipts_block_client_access`, and `aurevia_support_attachments_block_client_access`; each blocks all operations by `anon` and `authenticated` for its bucket. Trusted server routes use the service role only after session, record-ownership, or administrator checks. New object keys use `<userId>/<generated-UUID>.<extension>`. Upload routes verify signatures, MIME type, extension, size, and owning database record; file replacement is non-upserting and owner-scoped. File access uses signed URLs for at most five minutes. Users can retrieve their own KYC documents through the owner-filtered document route; administrator KYC review requires `requireAdmin`. KYC accepts JPEG, PNG, WebP, and PDF up to 8 MB; administrators can review uploaded files from `/admin`. No external identity, AML, sanctions, or malware-scanning provider is connected.
+
+### Provider status and safe fallbacks
+
+| Capability | Provider/configuration | Current behavior without provider |
+| --- | --- | --- |
+| Database | Supabase Postgres; `DATABASE_URL`, `DIRECT_URL` | Server operations fail explicitly; no in-memory financial fallback |
+| Market information | Yahoo Finance chart endpoint; no credential configured or required by this unofficial endpoint | Live market screens show unavailable/stale provider status; internal prices are separately labelled simulated |
+| Broker/execution | Provider contract only; no broker adapter or credentials | REAL execution path is disabled and rejected; only DEMO orders are simulated |
+| Deposits and withdrawals | Funding-provider contract only; no bank, card, blockchain, or custody adapter | REAL deposit approval and manual withdrawal settlement are blocked; no external transfer is claimed |
+| REAL investments | No investment execution/settlement provider | Requests may be reviewed, but activation, completion, and settlement are blocked |
+| Identity/KYC | No identity verification provider configured | Documents/details can be submitted for human review only; approval is an administrator decision |
+| Email/OTP | SMTP settings and verification delivery URL/key pairs | No email/SMS is claimed sent; verification-dependent actions report unavailable |
+| Private files | Supabase Storage URL, private bucket, service-role key | Upload and signed access fail closed; no public-file fallback |
+| Deployment | No deployment provider configuration is checked into this repository | Production secret injection, domains, TLS, backups, monitoring, and release controls must be configured in the hosting environment |
+| SMS/OTP | `VERIFICATION_SMS_API_URL`, `VERIFICATION_SMS_API_KEY` | SMS verification cannot be completed; when required, registration fails closed |
 
 Password recovery tokens are random, single-use, expire after 30 minutes, and are stored only as SHA-256 hashes. Resetting a password revokes the active account session. Successful and failed credential attempts are written to the existing admin-only audit log with a validated IP when available, bounded user-agent text, and a hashed identifier for unknown accounts; no password or raw token is stored.
 
@@ -151,7 +196,7 @@ Create a normal account from `/register`, sign in, and confirm `/dashboard`, `/t
 
 ### 4. KYC
 
-Submit the KYC form. Admin can approve or reject the account from `/admin`.
+Submit the KYC form and upload an identity document to private storage. Admin reviews the file first, then approves/rejects the overall verification from `/admin`. Real-account funding requires an approved KYC profile and approved identity document.
 
 ### 5. Funding
 
@@ -215,13 +260,13 @@ POST /api/kyc
 
 ## Production hardening checklist
 
-Before real-money use, add and independently verify:
+Before any real-money use, add and independently verify:
 
 - Managed PostgreSQL with backups and point-in-time recovery
 - Distributed rate limiting rather than process-memory rate limiting
 - TOTP/WebAuthn 2FA with recovery codes
 - Email/phone verification
-- KYC document storage and verification provider
+- Independent KYC verification provider and document malware scanning
 - AML and sanctions screening
 - Real payment/custody integrations
 - External market-data and execution integrations

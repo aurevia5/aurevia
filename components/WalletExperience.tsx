@@ -1,6 +1,6 @@
 'use client';
 
-import {FormEvent,useCallback,useEffect,useMemo,useState} from 'react';
+import {FormEvent,useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import Link from 'next/link';
 import {useSession} from 'next-auth/react';
 import {ArrowDownLeft,ArrowUpRight,Check,Copy,RefreshCw,WalletCards} from 'lucide-react';
@@ -9,7 +9,7 @@ import Nav from '@/components/Nav';
 type PaymentMethod={id:string;name:string;currencies:string[];destination:string|null;instructions:string|null;minimumAmount:string|number;maximumAmount:string|number|null;depositEnabled:boolean;withdrawalEnabled:boolean;requiresNetwork:boolean;demoOnly:boolean};
 type FundingRecord={id:string;type:'DEPOSIT'|'WITHDRAWAL';method:string;amount:number|string;currency:string;status:string;accountMode:'DEMO'|'REAL';createdAt:string;transactionReference?:string|null;adminNote?:string|null;hasReceipt?:boolean};
 type WalletData={accountMode:'DEMO'|'REAL';balance:number|string;balances:Array<{currency:string;balance:number|string}>;transactions:FundingRecord[]};
-type KycData={kycStatus:string};
+type KycData={kycStatus:string;documents:number;verificationProfileSubmitted:boolean;withdrawalEnabled:boolean;accountRestricted:boolean;restrictionReason:string|null};
 
 const money=(amount:number,currency='USD')=>`${amount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:8})} ${currency}`;
 const statuses:Record<string,string>={PENDING:'Pending',PENDING_REVIEW:'Pending review',PROCESSING:'Processing',APPROVED:'Approved',COMPLETED:'Completed',REJECTED:'Rejected',CANCELLED:'Cancelled'};
@@ -38,6 +38,7 @@ export default function WalletExperience(){
 	const [loading,setLoading]=useState(true);
 	const [submitting,setSubmitting]=useState(false);
 	const [copied,setCopied]=useState(false);
+	const copiedTimer=useRef<number|null>(null);
 	const [idempotencyKey,setIdempotencyKey]=useState('');
 	const [keyFingerprint,setKeyFingerprint]=useState('');
 	const [receiptFiles,setReceiptFiles]=useState<Record<string,File|undefined>>({});
@@ -49,7 +50,8 @@ export default function WalletExperience(){
 	const currentBalance=Number(data.balances.find(item=>item.currency===currency)?.balance||0);
 	const pendingWithdrawal=useMemo(()=>data.transactions.filter(item=>item.type==='WITHDRAWAL'&&item.currency===currency&&reserves.includes(item.status)).reduce((sum,item)=>sum+Number(item.amount),0),[data.transactions,currency]);
 	const availableBalance=currentBalance-pendingWithdrawal;
-	const realKycApproved=profile?.kycStatus==='APPROVED';
+	const realKycApproved=profile?.kycStatus==='APPROVED'&&profile.documents>0&&profile.verificationProfileSubmitted;
+	const realWithdrawalBlocked=data.accountMode==='REAL'&&!!profile&&(!profile.withdrawalEnabled||profile.accountRestricted);
 
 	const load=useCallback(async(showLoading=false)=>{
 		if(showLoading)setLoading(true);
@@ -72,6 +74,7 @@ export default function WalletExperience(){
 		if(!availableMethods.some(method=>method.id===methodId))setMethodId(availableMethods[0]?.id||'');
 	},[availableMethods,methodId]);
 	useEffect(()=>{if(supportedCurrencies.length&&!supportedCurrencies.includes(currency))setCurrency(supportedCurrencies[0])},[supportedCurrencies,currency]);
+	useEffect(()=>()=>{if(copiedTimer.current!==null)window.clearTimeout(copiedTimer.current)},[]);
 
 	async function submit(event:FormEvent<HTMLFormElement>){
 		event.preventDefault();	setConfirming(true);setMessage('');setError('');
@@ -96,7 +99,7 @@ export default function WalletExperience(){
 
 	async function copyDestination(){
 		if(!selectedMethod?.destination||selectedMethod.demoOnly)return;
-		try{await navigator.clipboard.writeText(selectedMethod.destination);setCopied(true);window.setTimeout(()=>setCopied(false),1500)}catch{setError('Clipboard access is unavailable in this browser.')}
+		try{await navigator.clipboard.writeText(selectedMethod.destination);setCopied(true);if(copiedTimer.current!==null)window.clearTimeout(copiedTimer.current);copiedTimer.current=window.setTimeout(()=>{setCopied(false);copiedTimer.current=null},1500)}catch{setError('Clipboard access is unavailable in this browser.')}
 	}
 
 	async function uploadReceipt(request:FundingRecord){
@@ -122,7 +125,8 @@ export default function WalletExperience(){
 
 	return <><Nav/><main className="account-page">
 		<header className="account-heading"><div><span className="account-kicker">{data.accountMode} ACCOUNT · Wallet &amp; funding</span><h1>Account funds</h1><p>{data.accountMode==='DEMO'?'Demo balances and funding activity are isolated from real accounts.':'Real-account funding stays pending until administrator review.'}</p></div><span className={`status-pill ${data.accountMode==='DEMO'?'mode-demo':'mode-real'}`}>{data.accountMode} ACCOUNT</span></header>
-		{data.accountMode==='REAL'&&!realKycApproved&&<div className="account-callout account-mode-notice"><span>Identity verification must be approved before real-account funding requests can be submitted.</span><Link className="text-link" href="/kyc">Open verification</Link></div>}
+		{data.accountMode==='REAL'&&!realKycApproved&&<div className="account-callout account-mode-notice"><span>Submit an identity document and receive administrator approval before real-account funding requests can be submitted.</span><Link className="text-link" href="/kyc">Open verification</Link></div>}
+		{realWithdrawalBlocked&&<div className="account-callout account-mode-notice"><span>{profile?.accountRestricted?'Withdrawals are restricted for this account.':'Withdrawals are disabled for this account.'}{profile?.restrictionReason?` ${profile.restrictionReason}`:''}</span><Link className="text-link" href="/support">Contact support</Link></div>}
 		<section className="wallet-balance-panel"><div className="account-kicker">Available {data.accountMode.toLowerCase()} balances</div><div className="wallet-balance-value">{loading?'Loading…':money(Number(data.balance||0))}</div><p className="wallet-demo-note">Only approved ledger entries are included. Pending withdrawals are reserved below.</p><div className="wallet-currency-list">{data.balances.map(item=><span key={item.currency}>{money(Number(item.balance),item.currency)}</span>)}</div></section>
 		{error&&<p className="mt-3 text-sm text-loss" role="alert">{error}</p>}
 		{message&&<p className="mt-3 text-sm text-profit" role="status">{message}</p>}
@@ -151,7 +155,7 @@ export default function WalletExperience(){
 					</>}
 					{!availableMethods.length&&<div className="account-empty">No {type.toLowerCase()} methods are currently enabled. Contact an administrator through support.</div>}
 					{confirming&&selectedMethod&&<div className="account-confirm-panel" role="alert"><h3>Confirm {type.toLowerCase()} request</h3><p>{money(Number(amount||0),currency)} via {selectedMethod.name} in the {data.accountMode} account. This records a request only; it does not send or confirm payment.</p><div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn bg-gold text-black" disabled={submitting} onClick={()=>void confirmSubmit()}>{submitting?'Submitting…':'Confirm request'}</button><button type="button" className="btn bg-white/5" onClick={()=>setConfirming(false)}>Cancel</button></div></div>}
-					{!confirming&&<button className="btn w-full bg-gold text-black" type="submit" disabled={loading||!selectedMethod||(data.accountMode==='REAL'&&!realKycApproved)}>{type==='DEPOSIT'?'Review deposit request':'Review withdrawal request'}</button>}
+					{!confirming&&<button className="btn w-full bg-gold text-black" type="submit" disabled={loading||!selectedMethod||(data.accountMode==='REAL'&&!realKycApproved)||(type==='WITHDRAWAL'&&realWithdrawalBlocked)}>{type==='DEPOSIT'?'Review deposit request':'Review withdrawal request'}</button>}
 				</form>
 			</section>
 			<section className="account-panel card p-5"><div className="account-panel-title"><div><h2>Transaction history</h2><p className="account-panel-subtitle">Mode-specific funding requests and review records.</p></div><div className="flex items-center gap-2"><Link className="text-link" href="/wallet/transactions">Full history</Link><button type="button" className="icon-action" aria-label="Refresh wallet history" onClick={()=>{setLoading(true);void load()}}><RefreshCw size={15}/></button></div></div>

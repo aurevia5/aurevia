@@ -82,6 +82,7 @@ type Cached<T> = {expiresAt:number;promise:Promise<T>};
 const chartCache = new Map<string,Cached<YahooChartResult>>();
 const quoteCache = new Map<string,Cached<MarketQuote>>();
 const lastKnownQuoteCache = new Map<string,MarketQuote>();
+const staleQuoteAgeMs=5*60_000;
 
 export class MarketDataError extends Error {
   constructor(message:string,readonly status=502){super(message);this.name='MarketDataError';}
@@ -148,9 +149,11 @@ function quoteFromResult(asset:LiveMarketAsset,result:YahooChartResult):MarketQu
 export async function getMarketQuote(asset:LiveMarketAsset):Promise<MarketQuote>{
   try{
     const quote=await getCached(quoteCache,asset.id,5_000,async()=>quoteFromResult(asset,await fetchYahooChart(asset,'1d','1m')));
-    const fresh={...quote,isStale:false};
-    lastKnownQuoteCache.set(asset.id,fresh);
-    return fresh;
+    const age=Date.now()-Date.parse(quote.updatedAt);
+    const staleReason=age>staleQuoteAgeMs?'Provider quote timestamp is older than five minutes.':age< -5_000?'Provider quote timestamp is in the future.':undefined;
+    const timestamped={...quote,isStale:!!staleReason,...(staleReason?{staleReason}:{})};
+    lastKnownQuoteCache.set(asset.id,timestamped);
+    return timestamped;
   }catch(error){
     const lastKnown=lastKnownQuoteCache.get(asset.id);
     if(!lastKnown)throw error;

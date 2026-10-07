@@ -7,8 +7,14 @@ const appOrigin='http://127.0.0.1:4310';
 export const test=base;
 export {expect};
 
+export async function waitForStartup(page:Page){
+	await expect(page.locator('.startup-screen')).toHaveCount(0);
+	await expect(page.locator('.scene-content > div[inert]')).toHaveCount(0);
+}
+
 export async function loginAs(page:Page,email:string,password:string){
 	await page.goto('/login');
+	await waitForStartup(page);
 	await page.getByLabel('Email or administrator username').fill(email);
 	await page.getByLabel('Password',{exact:true}).fill(password);
 	await page.getByRole('checkbox',{name:/Replace the active Aurevia session/}).check();
@@ -52,7 +58,7 @@ test.afterEach(async({page},testInfo)=>{
 	const capture=(page as Page & {__runtimeCapture?:RuntimeCapture}).__runtimeCapture;
 	if(!capture)return;
 	await testInfo.attach('browser-runtime.json',{body:Buffer.from(JSON.stringify(capture,null,2)),contentType:'application/json'});
-	const expectedClientErrors=capture.failedResponses.filter(response=>(response.url.endsWith('/api/register/verify')&&response.status===400)||(response.url.endsWith('/api/auth/callback/credentials')&&response.status===401)||(testInfo.title.includes('session replacement is explicit')&&response.url.endsWith('/api/notifications?limit=8')&&response.status===401));
+	const expectedClientErrors=capture.failedResponses.filter(response=>(response.url.endsWith('/api/register/verify')&&response.status===400)||(response.url.endsWith('/api/auth/callback/credentials')&&response.status===401)||((testInfo.title.includes('session replacement is explicit')||testInfo.title.includes('Nova escalation reaches admin'))&&response.url.endsWith('/api/notifications?limit=8')&&response.status===401));
 	const unexpectedResponses=capture.failedResponses.filter(response=>!expectedClientErrors.includes(response));
 	expect(capture.consoleErrors,'browser console errors').toEqual([]);
 	expect(capture.pageErrors,'uncaught browser exceptions').toEqual([]);

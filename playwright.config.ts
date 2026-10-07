@@ -2,7 +2,21 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {defineConfig,devices} from '@playwright/test';
+import {loadEnvConfig} from '@next/env';
 
+loadEnvConfig(process.cwd());
+function localDatabaseTarget(name:string){
+	const value=process.env[name];
+	let parsed:URL;
+	try{parsed=new URL(value||'')}catch{throw new Error(`Refusing to start Playwright: ${name} must point to an isolated local test database.`)}
+	if(!['localhost','127.0.0.1','::1'].includes(parsed.hostname)||!parsed.pathname||parsed.pathname==='/'){
+		throw new Error(`Refusing to start Playwright: ${name} must point to an isolated local test database.`);
+	}
+	return `${parsed.hostname}:${parsed.port||'5432'}${parsed.pathname}`;
+}
+if(localDatabaseTarget('DATABASE_URL')!==localDatabaseTarget('DIRECT_URL')){
+	throw new Error('Refusing to start Playwright: DATABASE_URL and DIRECT_URL must target the same isolated local database.');
+}
 const baseURL='http://127.0.0.1:4310';
 const providerURL='http://127.0.0.1:4311';
 const testSecret=randomBytes(32).toString('hex');
@@ -39,13 +53,14 @@ export default defineConfig({
 			timeout:15000,
 		},
 		{
-			command:'npm run build && npm run start',
+			command:'npm run build && npm start',
 			url:`${baseURL}/api/health`,
 			reuseExistingServer:false,
 			timeout:240000,
 			env:{
 				...process.env,
 				PORT:'4310',
+				NODE_ENV:'production',
 				NEXTAUTH_URL:baseURL,
 				NEXT_PUBLIC_APP_URL:baseURL,
 				NEXTAUTH_SECRET:testSecret,
@@ -57,6 +72,20 @@ export default defineConfig({
 				VERIFICATION_SMS_API_KEY:'playwright-only-provider-key',
 				AUREVIA_E2E_ALLOW_HTTP_PROVIDER:'1',
 				MARKET_TICK_MS:'1000',
+				SUPABASE_URL:'',
+				SUPABASE_SERVICE_ROLE_KEY:'',
+				NEXT_PUBLIC_SUPABASE_URL:'',
+				NEXT_PUBLIC_SUPABASE_ANON_KEY:'',
+				REAL_EXECUTION_ENABLED:'false',
+				BROKER_PROVIDER:'',
+				BROKER_API_URL:'',
+				BROKER_API_KEY:'',
+				BROKER_ACCOUNT_ID:'',
+				BROKER_WEBHOOK_SECRET:'',
+				PAYMENT_PROVIDER:'',
+				PAYMENT_API_URL:'',
+				PAYMENT_API_KEY:'',
+				PAYMENT_WEBHOOK_SECRET:'',
 			},
 		},
 	],

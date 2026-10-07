@@ -104,11 +104,22 @@ export async function PATCH(request:Request){
   }
 
   const input=lifecycleSchema.parse(body);
+  if(input.action==='activate'||input.action==='complete'||input.action==='settle'){
+   const candidate=await db.investmentRequest.findUnique({where:{id:input.requestId},select:{id:true,accountMode:true}});
+   if(candidate?.accountMode===AccountMode.REAL){
+    await db.auditLog.create({data:{actorId:admin.id,action:`REAL_INVESTMENT_${input.action.toUpperCase()}_BLOCKED`,entity:'INVESTMENT',entityId:candidate.id,metadata:{accountMode:AccountMode.REAL,reason:'INVESTMENT_PROVIDER_UNAVAILABLE'}}});
+    return NextResponse.json({error:'REAL_INVESTMENT_PROVIDER_UNAVAILABLE'},{status:409});
+   }
+  }
   const result=await db.$transaction(async tx=>{
    const current=await tx.investmentRequest.findUnique({where:{id:input.requestId},include:{opportunity:true}});
    if(!current)throw new Error('INVESTMENT_REQUEST_NOT_FOUND');
    const action=input.action as InvestmentAction;
    const nextStatus=nextInvestmentStatus(current.status,action);
+    if(current.accountMode===AccountMode.REAL&&(action==='approve'||action==='activate')){
+     const profile=await tx.user.findUnique({where:{id:current.userId},select:{kycStatus:true,kyc:{select:{submittedAt:true}},kycDocuments:{where:{kind:'IDENTITY_DOCUMENT',status:'APPROVED'},select:{id:true},take:1}}});
+     if(profile?.kycStatus!=='APPROVED'||!profile.kyc?.submittedAt||profile.kycDocuments.length===0)throw new Error('REAL_INVESTMENT_KYC_REQUIRED');
+    }
    if(action==='activate'){
     if(current.accountMode===AccountMode.REAL&&!input.executionReference)throw new Error('EXTERNAL_EXECUTION_REFERENCE_REQUIRED');
     if(current.opportunity.startsAt&&current.opportunity.startsAt>new Date())throw new Error('INVESTMENT_NOT_STARTED');
@@ -169,7 +180,7 @@ export async function PATCH(request:Request){
   if(error instanceof ZodError)return NextResponse.json({error:'Invalid opportunity or investment action.'},{status:400});
   if(error instanceof Error&&error.message==='UNAUTHORIZED')return NextResponse.json({error:'Unauthorized'},{status:401});
   if(error instanceof Error&&error.message==='FORBIDDEN')return NextResponse.json({error:'Forbidden'},{status:403});
-  const conflicts=['INVESTMENT_TRANSITION_NOT_ALLOWED','INVESTMENT_STATE_CHANGED','INVESTMENT_NOT_STARTED','INVESTMENT_OPPORTUNITY_MATURED','EXTERNAL_EXECUTION_REFERENCE_REQUIRED','EXTERNAL_SETTLEMENT_REFERENCE_REQUIRED','REAL_PAYOUT_NOT_SUPPORTED'];
+    const conflicts=['INVESTMENT_TRANSITION_NOT_ALLOWED','INVESTMENT_STATE_CHANGED','INVESTMENT_NOT_STARTED','INVESTMENT_OPPORTUNITY_MATURED','EXTERNAL_EXECUTION_REFERENCE_REQUIRED','EXTERNAL_SETTLEMENT_REFERENCE_REQUIRED','REAL_PAYOUT_NOT_SUPPORTED','REAL_INVESTMENT_KYC_REQUIRED'];
   if(error instanceof Error&&conflicts.includes(error.message))return NextResponse.json({error:error.message.replaceAll('_',' ').toLowerCase()},{status:409});
   if(error instanceof Error&&['INVESTMENT_OPPORTUNITY_NOT_FOUND','INVESTMENT_REQUEST_NOT_FOUND'].includes(error.message))return NextResponse.json({error:'Investment record not found.'},{status:404});
   if(error instanceof Error&&['INVALID_INVESTMENT_RANGE','INVALID_INVESTMENT_DATES','SIMULATED_PAYOUT_REQUIRED'].includes(error.message))return NextResponse.json({error:error.message.replaceAll('_',' ').toLowerCase()},{status:400});

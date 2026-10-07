@@ -33,6 +33,14 @@ enum KycStatus {
   NEEDS_CHANGES
 }
 
+enum DocumentStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  RESUBMISSION_REQUIRED
+}
+
 enum OrderSide {
   BUY
   SELL
@@ -166,9 +174,13 @@ model User {
   twoFactorEnabled Boolean @default(false)
   termsAcceptedAt DateTime?
   kycStatus KycStatus @default(PENDING)
+  kycDocuments KycDocument[]
   verifiedAt DateTime?
   verifiedChannel VerificationChannel?
   requiresRegistrationVerification Boolean @default(false)
+  withdrawalEnabled Boolean @default(true)
+  accountRestricted Boolean @default(false)
+  restrictionReason String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   orders Order[]
@@ -244,6 +256,23 @@ model KycProfile {
   reviewedAt DateTime?
   reviewNote String?
 }
+
+model KycDocument {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  kind String
+  filename String
+  storageKey String @unique
+  mimeType String
+  size Int
+  status DocumentStatus @default(SUBMITTED)
+  uploadedAt DateTime @default(now())
+  reviewedAt DateTime?
+  reviewNote String?
+  @@index([userId,status,uploadedAt])
+}
+
 model Instrument {
   id String @id @default(cuid())
   symbol String @unique
@@ -292,10 +321,18 @@ model Order {
   averageFillPrice Decimal? @db.Decimal(30,10)
   fee Decimal @default(0) @db.Decimal(30,10)
   idempotencyKey String? @unique
+  providerName String?
+  providerOrderId String? @unique
+  providerStatus String?
+  providerAcceptedAt DateTime?
+  providerUpdatedAt DateTime?
+  reconciliationStatus String?
+  reconciledAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   executions Execution[]
   @@index([userId,status])
+  @@index([accountMode,providerName,providerStatus])
 }
 model Execution {
   id String @id @default(cuid())
@@ -304,6 +341,7 @@ model Execution {
   quantity Decimal @db.Decimal(30,10)
   price Decimal @db.Decimal(30,10)
   fee Decimal @db.Decimal(30,10)
+  providerExecutionId String? @unique
   createdAt DateTime @default(now())
 }
 model Position {

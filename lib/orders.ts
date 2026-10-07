@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {db} from './db';
 import {balance,ensureSystemAccount,ensureUserLedger,postDoubleEntry} from './ledger';
 import {AccountMode,NotificationType,OrderSide,OrderStatus,OrderType,Prisma} from '@prisma/client';
@@ -67,10 +68,11 @@ export async function closeDemoPositionTx(tx:Prisma.TransactionClient,userId:str
  if(price.lte(0))throw new Error('INVALID_PRICE');
  const userAccount=await ensureUserLedger(tx,userId,AccountMode.DEMO);
  let pnl:Prisma.Decimal;
+ let fee=new Prisma.Decimal(0);
  if(position.side===OrderSide.BUY){
   const quantity=position.quantity;
   const proceeds=price.mul(quantity);
-  const fee=proceeds.mul(position.instrument.takerFee);
+  fee=proceeds.mul(position.instrument.takerFee);
   const clearing=await ensureSystemAccount(tx,'SYSTEM:CLEARING','Demo simulated spot clearing');
   const fees=await ensureSystemAccount(tx,'SYSTEM:FEES','Trading Fees');
   await postDoubleEntry(tx,{reference:`DEMO:POSITION_CLOSE:${position.id}`,description:`Simulated sale of ${position.instrument.symbol}`,debitAccountId:clearing.id,creditAccountId:userAccount.id,amount:proceeds});
@@ -83,9 +85,24 @@ export async function closeDemoPositionTx(tx:Prisma.TransactionClient,userId:str
   if(settlement.lte(0))throw new Error('POSITION_LIQUIDATED');
   await postDoubleEntry(tx,{reference:`DEMO:LEGACY_POSITION_CLOSE:${position.id}`,description:'Simulated legacy position close',debitAccountId:clearing.id,creditAccountId:userAccount.id,amount:settlement});
  }
+ const closingOrder=await tx.order.create({data:{
+  userId,
+  instrumentId:position.instrumentId,
+  accountMode:AccountMode.DEMO,
+  side:position.side===OrderSide.BUY?OrderSide.SELL:OrderSide.BUY,
+  type:OrderType.MARKET,
+  status:OrderStatus.FILLED,
+  quantity:position.quantity,
+  filledQuantity:position.quantity,
+  averageFillPrice:price,
+  fee,
+  idempotencyKey:`POSITION_CLOSE:${position.id}:${randomUUID()}`,
+ }});
+ await tx.execution.create({data:{orderId:closingOrder.id,quantity:position.quantity,price,fee}});
  const closed=await tx.position.update({where:{id:position.id},data:{status:'CLOSED',closedAt:new Date(),margin:0,realizedPnl:{increment:pnl}}});
- await tx.auditLog.create({data:{actorId,action:actorId===userId?'DEMO_POSITION_CLOSED':'DEMO_POSITION_ADMIN_CLOSED',entity:'POSITION',entityId:position.id,metadata:{accountMode:AccountMode.DEMO,symbol:position.instrument.symbol,quantity:position.quantity.toString(),exitPrice:price.toString(),realizedPnl:pnl.toString()}}});
- await createNotification(tx,{userId,type:NotificationType.TRADE,title:actorId===userId?'Demo position closed':'Demo position closed by administrator',message:`Your ${position.instrument.symbol} position was closed in the simulated account.`,dedupeKey:`position:${position.id}:${actorId===userId?'closed':'admin-closed'}`,relatedEntity:'POSITION',relatedId:position.id,actionUrl:'/trade'});
+ await tx.auditLog.create({data:{actorId,action:actorId===userId?'DEMO_POSITION_CLOSED':'DEMO_POSITION_ADMIN_CLOSED',entity:'POSITION',entityId:position.id,metadata:{accountMode:AccountMode.DEMO,symbol:position.instrument.symbol,quantity:position.quantity.toString(),exitPrice:price.toString(),realizedPnl:pnl.toString(),closingOrderId:closingOrder.id}}});
+ await tx.auditLog.create({data:{actorId,action:closingOrder.side===OrderSide.SELL?'DEMO_ORDER_SELL_FILLED':'DEMO_ORDER_BUY_FILLED',entity:'ORDER',entityId:closingOrder.id,metadata:{oldState:OrderStatus.OPEN,newState:OrderStatus.FILLED,accountMode:AccountMode.DEMO,positionId:position.id,instrument:position.instrument.symbol,quantity:position.quantity.toString(),fillPrice:price.toString(),fee:fee.toString()}}});
+ await createNotification(tx,{userId,type:NotificationType.TRADE,title:actorId===userId?'Demo position closed':'Demo position closed by administrator',message:`Your ${position.instrument.symbol} position was closed by a simulated ${closingOrder.side.toLowerCase()} order.`,dedupeKey:`order:${closingOrder.id}:filled`,relatedEntity:'ORDER',relatedId:closingOrder.id,actionUrl:'/trade'});
  return closed;
 }
 

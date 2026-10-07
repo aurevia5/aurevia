@@ -18,6 +18,7 @@ export default function Settings(){
 	const [avatarFile,setAvatarFile]=useState<File|null>(null);
 	const [avatarUrl,setAvatarUrl]=useState('');
 	const [avatarSaving,setAvatarSaving]=useState(false);
+	const [retryCount,setRetryCount]=useState(0);
 	const {data:session}=useSession();
 
 	useEffect(()=>{
@@ -31,7 +32,7 @@ export default function Settings(){
 			}
 		}).catch(exception=>{if(active)setError(exception instanceof Error?exception.message:'Unable to load your profile.')}).finally(()=>{if(active)setLoading(false)});
 		return()=>{active=false};
-	},[]);
+	},[retryCount]);
 
 	async function save(event:FormEvent<HTMLFormElement>){
 		event.preventDefault();
@@ -63,6 +64,7 @@ export default function Settings(){
 
 	return <><Nav/><main className="account-page">
 		<header className="account-heading"><div><span className="account-kicker">Account center</span><h1>Settings</h1><p>Manage your profile and review the security state supported by this account.</p></div><span className="status-pill">{loading?'Loading':profile?.status||'Unavailable'}</span></header>
+		{error&&<div className="account-callout mb-4" role="alert"><span>{error}</span><button type="button" className="text-link" disabled={loading} onClick={()=>{setError('');setLoading(true);setRetryCount(value=>value+1)}}>Retry</button></div>}
 		<div className="settings-layout">
 			<nav className="settings-tabs" aria-label="Settings sections" role="tablist">
 				<button type="button" role="tab" aria-selected={section==='profile'} className={section==='profile'?'is-active':''} onClick={()=>setSection('profile')}><UserRound size={16}/>Profile</button>
@@ -80,7 +82,7 @@ export default function Settings(){
 						<label className="account-label">Country<input className="input" autoComplete="country-name" required minLength={2} maxLength={80} value={profile.country||''} onChange={event=>setProfile({...profile,country:event.target.value})}/></label>
 						<label className="account-label md:col-span-2">Address (optional)<input className="input" autoComplete="street-address" maxLength={500} value={profile.address||''} onChange={event=>setProfile({...profile,address:event.target.value})}/></label>
 						<div className="account-callout md:col-span-2"><ShieldCheck size={16}/><span>Verification status: <b>{verification}</b>. Review your details on the <a className="gold" href="/kyc">Verification page</a>.</span></div>
-						<div className="md:col-span-2"><button type="submit" className="btn bg-gold text-black" disabled={saving||loading}>{saving?'Saving…':'Save profile'}</button>{message&&<p className="mt-3 text-sm text-profit" role="status">{message}</p>}{error&&<p className="mt-3 text-sm text-loss" role="alert">{error}</p>}</div>
+						<div className="md:col-span-2"><button type="submit" className="btn bg-gold text-black" disabled={saving||loading} aria-busy={saving}>{saving?'Saving…':'Save profile'}</button>{message&&<p className="mt-3 text-sm text-profit" role="status">{message}</p>}</div>
 					</form>}
 					{loading&&!profile&&<div className="account-empty" role="status">Loading profile…</div>}
 				</section>}
