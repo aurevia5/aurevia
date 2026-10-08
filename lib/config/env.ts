@@ -47,6 +47,8 @@ export type ServerConfiguration = {
   execution: {
     realEnabled: boolean;
     provider: string | null;
+    alpacaProvider: string;
+    brokerProvider: string;
     brokerApiUrl: string;
     brokerApiKey: string;
     brokerAccountId: string;
@@ -55,6 +57,18 @@ export type ServerConfiguration = {
     alpacaClientId: string;
     alpacaClientSecret: string;
     alpacaConfigured: boolean;
+    alpacaTradingBaseUrl: string;
+    alpacaTradingUrlConfigured: boolean;
+    alpacaTradingUrlValid: boolean;
+    alpacaTradingApiKey: string;
+    alpacaTradingApiSecret: string;
+    alpacaTradingAccountId: string;
+    alpacaTradingConfigured: boolean;
+    alpacaBrokerBaseUrl: string;
+    alpacaBrokerClientId: string;
+    alpacaBrokerClientSecret: string;
+    alpacaBrokerAccountId: string;
+    alpacaBrokerConfigured: boolean;
   };
   payment: {
     provider: string;
@@ -67,6 +81,7 @@ export type ServerConfiguration = {
     apiUrl: string;
     apiKey: string;
     configured: boolean;
+    finnhubApiKey: string;
   };
 };
 
@@ -97,6 +112,19 @@ function getDatabaseTarget(url: string): string {
   }
 }
 
+export function normalizeAlpacaTradingBaseUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== 'https:' || !['api.alpaca.markets', 'paper-api.alpaca.markets'].includes(host)) return null;
+    const basePath = parsed.pathname.replace(/\/+$/, '');
+    if (parsed.username || parsed.password || parsed.port || !['', '/v2'].includes(basePath) || parsed.search || parsed.hash) return null;
+    return `https://${host}`;
+  } catch {
+    return null;
+  }
+}
+
 export function getServerConfiguration(source: EnvironmentSource = process.env): ServerConfiguration {
   const databaseUrl = cleanUrl(env('DATABASE_URL', source));
   const directUrl = cleanUrl(env('DIRECT_URL', source));
@@ -107,13 +135,27 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
   const smtpConfigured = Boolean(env('SMTP_HOST', source) && env('SMTP_USER', source) && env('SMTP_PASSWORD', source) && env('SMTP_FROM', source)) && Number.isInteger(smtpPort) && smtpPort > 0 && smtpPort <= 65535;
   const verificationEmailConfigured = Boolean(env('VERIFICATION_EMAIL_API_URL', source) && env('VERIFICATION_EMAIL_API_KEY', source));
   const verificationSmsConfigured = Boolean(env('VERIFICATION_SMS_API_URL', source) && env('VERIFICATION_SMS_API_KEY', source));
-  const executionProvider = env('BROKER_PROVIDER', source) || env('ALPACA_PROVIDER', source) || null;
+  const executionProvider = env('ALPACA_PROVIDER', source) || env('BROKER_PROVIDER', source) || null;
+  const alpacaProvider = env('ALPACA_PROVIDER', source);
+  const brokerProvider = env('BROKER_PROVIDER', source);
+  const alpacaTradingRawBaseUrl = env('ALPACA_TRADING_BASE_URL', source);
+  const alpacaTradingBaseUrl = normalizeAlpacaTradingBaseUrl(alpacaTradingRawBaseUrl) || '';
+  const alpacaTradingApiKey = env('ALPACA_API_KEY', source);
+  const alpacaTradingApiSecret = env('ALPACA_API_SECRET', source);
+  const alpacaTradingAccountId = env('ALPACA_ACCOUNT_ID', source);
+  const alpacaTradingConfigured = Boolean(alpacaTradingBaseUrl && alpacaTradingApiKey && alpacaTradingApiSecret && alpacaTradingAccountId);
+  const alpacaBrokerBaseUrl = env('ALPACA_BROKER_BASE_URL', source) || env('BROKER_API_URL', source);
+  const alpacaBrokerClientId = env('ALPACA_BROKER_CLIENT_ID', source) || env('BROKER_API_KEY', source);
+  const alpacaBrokerClientSecret = env('ALPACA_BROKER_CLIENT_SECRET', source) || env('BROKER_API_KEY', source);
+  const alpacaBrokerAccountId = env('BROKER_ACCOUNT_ID', source) || env('ALPACA_ACCOUNT_ID', source);
+  const alpacaBrokerConfigured = Boolean(alpacaBrokerBaseUrl && alpacaBrokerClientId && alpacaBrokerClientSecret && alpacaBrokerAccountId);
   const alpacaBaseUrl = env('ALPACA_TRADING_BASE_URL', source) || env('ALPACA_BROKER_BASE_URL', source);
   const alpacaClientId = env('ALPACA_API_KEY', source) || env('ALPACA_BROKER_CLIENT_ID', source);
   const alpacaClientSecret = env('ALPACA_API_SECRET', source) || env('ALPACA_BROKER_CLIENT_SECRET', source);
   const alpacaConfigured = Boolean(alpacaBaseUrl && alpacaClientId && alpacaClientSecret);
   const paymentConfigured = Boolean(env('PAYMENT_PROVIDER', source) && env('PAYMENT_API_URL', source) && env('PAYMENT_API_KEY', source));
-  const marketDataConfigured = Boolean(env('MARKET_DATA_API_URL', source));
+  const finnhubApiKey = env('FINNHUB_API_KEY', source);
+  const marketDataConfigured = Boolean(env('MARKET_DATA_API_URL', source) || finnhubApiKey);
 
   return {
     database: {
@@ -162,6 +204,8 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
     execution: {
       realEnabled: booleanEnv('REAL_EXECUTION_ENABLED', source),
       provider: executionProvider || null,
+      alpacaProvider,
+      brokerProvider,
       brokerApiUrl: env('BROKER_API_URL', source),
       brokerApiKey: env('BROKER_API_KEY', source),
       brokerAccountId: env('BROKER_ACCOUNT_ID', source) || env('ALPACA_ACCOUNT_ID', source),
@@ -170,6 +214,18 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
       alpacaClientId,
       alpacaClientSecret,
       alpacaConfigured,
+      alpacaTradingBaseUrl,
+      alpacaTradingUrlConfigured: Boolean(alpacaTradingRawBaseUrl),
+      alpacaTradingUrlValid: Boolean(alpacaTradingBaseUrl),
+      alpacaTradingApiKey,
+      alpacaTradingApiSecret,
+      alpacaTradingAccountId,
+      alpacaTradingConfigured,
+      alpacaBrokerBaseUrl,
+      alpacaBrokerClientId,
+      alpacaBrokerClientSecret,
+      alpacaBrokerAccountId,
+      alpacaBrokerConfigured,
     },
     payment: {
       provider: env('PAYMENT_PROVIDER', source),
@@ -182,6 +238,7 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
       apiUrl: env('MARKET_DATA_API_URL', source),
       apiKey: env('MARKET_DATA_API_KEY', source),
       configured: marketDataConfigured,
+      finnhubApiKey,
     },
   };
 }
@@ -211,7 +268,8 @@ export function validateServerConfiguration(config: ServerConfiguration): string
   } catch {
     issues.push('NEXTAUTH_URL must be a valid absolute HTTPS URL');
   }
-  if(config.execution.realEnabled && !config.execution.alpacaConfigured) issues.push('REAL_EXECUTION_ENABLED requires a complete Individual Alpaca Trading API configuration');
+  if(config.execution.realEnabled && (!config.execution.alpacaTradingConfigured || config.execution.alpacaProvider.toLowerCase() !== 'alpaca')) issues.push('REAL_EXECUTION_ENABLED requires a complete Individual Alpaca Trading API configuration selected with ALPACA_PROVIDER=alpaca');
+  if(config.execution.realEnabled && config.execution.alpacaTradingUrlConfigured && !config.execution.alpacaTradingUrlValid) issues.push('ALPACA_TRADING_BASE_URL must use an approved HTTPS Alpaca Trading API host');
   return issues;
 }
 
@@ -230,6 +288,7 @@ export function configurationSummary(config: ServerConfiguration) {
       adapterRegistered: false,
     },
     marketDataConfigured: config.marketData.configured,
+    finnhubConfigured: Boolean(config.marketData.finnhubApiKey),
     paymentConfigured: config.payment.configured,
   };
 }

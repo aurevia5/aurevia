@@ -2,7 +2,8 @@ import {NextResponse} from 'next/server';
 import {requireAdmin} from '@/lib/auth';
 import {getExecutionProviderStatus} from '@/lib/providers/registry';
 import {getIdentityComplianceProvider} from '@/lib/providers/identity-provider';
-import {getMarketDataProvider} from '@/lib/providers/market-data-provider';
+import {getLiveMarketProviderStatus} from '@/lib/live-market';
+import {getServerConfiguration} from '@/lib/config/env';
 import {getFundingProvider} from '@/lib/providers/funding-provider';
 
 export const dynamic='force-dynamic';
@@ -16,7 +17,7 @@ export async function GET(){
 	try{
 		await requireAdmin();
 		const execution=await getExecutionProviderStatus();
-		const marketProvider=getMarketDataProvider();
+		const marketProvider=await getLiveMarketProviderStatus(getServerConfiguration().marketData.finnhubApiKey);
 		const identityProvider=getIdentityComplianceProvider();
 		const fundingProvider=getFundingProvider();
 		return NextResponse.json({
@@ -30,6 +31,7 @@ export async function GET(){
 				configuredVariables:execution.configuredVariables,
 				missingConfiguration:execution.missingConfiguration,
 				executionPathEnabled:execution.state==='CONNECTED',
+				alpacaTrading:execution.alpacaTrading,
 				cryptoCapabilities:{
 					orderSubmission:execution.state==='CONNECTED',
 					positionAndBalanceReconciliation:false,
@@ -37,8 +39,10 @@ export async function GET(){
 				},
 			},
 			marketData:{
-				status:marketProvider?'CONFIGURED':'NOT_CONFIGURED',
-				provider:safeProviderLabel(marketProvider?.name)||'Yahoo Finance chart endpoint (unofficial; request health is reported by quote routes)',
+				status:marketProvider.status,
+				provider:marketProvider.provider,
+				finnhubStatus:marketProvider.finnhubStatus,
+				fallbackProvider:marketProvider.fallbackProvider,
 				usedForOrderExecution:false,
 			},
 			funding:{

@@ -10,7 +10,7 @@ import {getActiveWatchlist,useMarketWatchlists} from '@/lib/market-watchlists';
 
 type QuoteError={asset:NonNullable<ReturnType<typeof getMarketAsset>>;error:string};
 type QuotesResponse={quotes:Array<MarketQuote|QuoteError>;source:string};
-type HistoryResponse={quote:MarketQuote;candles:MarketCandle[];timeframe:TimeframeId;interval:string};
+type HistoryResponse={quote:MarketQuote;candles:MarketCandle[];timeframe:TimeframeId;interval:string;source?:string};
 type ReturnMetric={label:string;days:number;value:number|null};
 
 const TICKER_SYMBOLS=['BTC','DJI','MERV','DAX','IBEX','NIKKEI','EURGBP','SPX','NASDAQ'];
@@ -77,8 +77,8 @@ function LiveMarketDashboardContent(){
 
   return <><Nav/><main className="live-market-page">
     <div className="live-market-topline">
-      <div className="live-market-heading"><span>MERCADOS GLOBALES <i/> {activeQuote?.isStale?'ÚLTIMO DATO GUARDADO':'DATOS EN VIVO'}</span><h1>Mercados</h1><p>Precios de mercado y gráficos con datos de Yahoo Finance.</p></div>
-      <div className={`live-source-status ${activeQuote?.isStale?'is-stale':''}`}><span className="live-status-dot"/>Yahoo Finance <small>{activeQuote?.isStale?`Último dato guardado · ${formatTime(activeQuote.updatedAt)}`:activeQuote?`Actualizado ${formatTime(activeQuote.updatedAt)}`:'Esperando cotizaciones'}</small></div>
+      <div className="live-market-heading"><span>MERCADOS GLOBALES <i/> {activeQuote?.isStale?'ÚLTIMO DATO GUARDADO':activeQuote?'DATOS DEL PROVEEDOR':'DATOS NO DISPONIBLES'}</span><h1>Mercados</h1><p>Precios de mercado y gráficos de {activeQuote?.source||'un proveedor disponible'}.</p></div>
+      <div className={`live-source-status ${activeQuote?.isStale?'is-stale':''}`}><span className="live-status-dot"/>{activeQuote?.source||'Proveedor no disponible'} <small>{activeQuote?.isStale?`Último dato guardado · ${formatTime(activeQuote.updatedAt)}`:activeQuote?`Actualizado ${formatTime(activeQuote.updatedAt)}`:'Esperando cotizaciones'}</small></div>
     </div>
 
     <section className="live-ticker" aria-label="Ticker de mercados">
@@ -136,7 +136,7 @@ function LiveMarketDashboardContent(){
             {activeQuote&&<span className={`live-change ${tone(activeQuote.changePercent)}`}><b>{activeQuote.change>=0?'+':''}{formatPrice(activeQuote.change,selectedAsset.currency,selectedAsset.type==='FOREX')}</b><b>({formatPercent(activeQuote.changePercent)})</b></span>}
             <span className="live-market-open-state"><i/> {marketOpenLabel(selectedAsset.type)}</span>
           </div>
-          <div className="live-chart-metadata"><span>{activeQuote?.isStale?'Último dato · DESACTUALIZADO': 'Último dato'} {activeQuote?formatTime(activeQuote.updatedAt):'—'}</span><span>Fuente <b>Yahoo Finance</b></span><button type="button" className="live-refresh-button" aria-label="Actualizar cotizaciones" onClick={()=>{void selectedQuery.refetch();void batchQuery.refetch();void historyQuery.refetch()}}><RefreshCw size={13} className={selectedQuery.isFetching?'is-spinning':''}/> Actualizar</button></div>
+          <div className="live-chart-metadata"><span>{activeQuote?.isStale?'Último dato · DESACTUALIZADO': 'Último dato'} {activeQuote?formatTime(activeQuote.updatedAt):'—'}</span><span>Fuente <b>{activeQuote?.source||historyQuery.data?.source||'No disponible'}</b></span><button type="button" className="live-refresh-button" aria-label="Actualizar cotizaciones" onClick={()=>{void selectedQuery.refetch();void batchQuery.refetch();void historyQuery.refetch()}}><RefreshCw size={13} className={selectedQuery.isFetching?'is-spinning':''}/> Actualizar</button></div>
           {activeQuote?.isStale&&<div className="live-data-alert" role="status">Proveedor no disponible. Se muestra el último precio recibido, no una cotización en vivo.{activeQuote.staleReason?` ${activeQuote.staleReason}`:''}</div>}
           <div className="live-timeframes" role="group" aria-label="Intervalo del gráfico">{TIMEFRAMES.map(item=><button type="button" key={item.id} className={timeframe===item.id?'is-active':''} aria-pressed={timeframe===item.id} onClick={()=>setTimeframe(item.id)}>{item.label}</button>)}</div>
           <LivePriceChart candles={historyQuery.data?.candles||[]} quote={activeQuote} timeframe={timeframe} loading={historyQuery.isLoading} error={historyQuery.error instanceof Error?historyQuery.error.message:''}/>
@@ -163,8 +163,8 @@ function LiveMarketDashboardContent(){
           <div className="live-key-row"><span>Tipo</span><b>{marketTypeLabel(selectedAsset.type)}</b></div>
           <div className="live-key-row"><span>Rango diario</span><b>{activeQuote?.dayLow!==null&&activeQuote?.dayLow!==undefined&&activeQuote.dayHigh!==null?`${formatPrice(activeQuote.dayLow,selectedAsset.currency)} – ${formatPrice(activeQuote.dayHigh,selectedAsset.currency)}`:'—'}</b></div>
         </section>
-        <section className="live-right-card live-provider-card"><span className="live-provider-mark">Y!</span><div><b>Yahoo Finance</b><small>Proveedor de cotizaciones</small></div><span className="live-provider-dot" title="Proveedor configurado"/></section>
-        <p className="live-disclaimer">Los datos son proporcionados por Yahoo Finance y pueden tener retraso. No es asesoramiento financiero ni una conexión de ejecución bursátil.</p>
+        <section className="live-right-card live-provider-card"><span className="live-provider-mark">{activeQuote?.source==='Finnhub'?'F':'Y!'}</span><div><b>{activeQuote?.source||'Proveedor no disponible'}</b><small>Proveedor de cotizaciones</small></div><span className="live-provider-dot" title={activeQuote?.source?'Proveedor respondió con una cotización':'Sin cotización disponible'}/></section>
+        <p className="live-disclaimer">{activeQuote?`Los datos son proporcionados por ${activeQuote.source} y pueden tener retraso.`:'Las cotizaciones no están disponibles en este momento.'} No es asesoramiento financiero ni una conexión de ejecución bursátil.</p>
       </aside>
     </div>
   </main></>;

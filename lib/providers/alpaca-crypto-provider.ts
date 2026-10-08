@@ -9,6 +9,7 @@ import type {
   SignedProviderWebhook,
 } from './contracts';
 import { getServerConfiguration } from '@/lib/config/env';
+import { normalizeAlpacaTradingBaseUrl } from '@/lib/config/env';
 import { verifyHmacSha256 } from './registry';
 
 export type AlpacaCryptoClientOptions = {
@@ -255,13 +256,15 @@ export class IndividualAlpacaTradingProvider implements ExecutionProvider {
     webhookSecret?: string;
     fetcher?: typeof fetch;
   }) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    const baseUrl = normalizeAlpacaTradingBaseUrl(options.baseUrl);
+    if (!baseUrl) throw new Error('INVALID_ALPACA_TRADING_BASE_URL');
+    this.baseUrl = baseUrl;
     this.apiKey = options.apiKey;
     this.apiSecret = options.apiSecret;
     this.accountId = options.accountId;
     this.fetcher = options.fetcher ?? fetch;
     this.webhookSecret = options.webhookSecret ?? '';
-    this.executionMode = /^https:\/\/api\.alpaca\.markets$/i.test(this.baseUrl) ? 'LIVE' : 'PAPER';
+    this.executionMode = new URL(this.baseUrl).hostname === 'api.alpaca.markets' ? 'LIVE' : 'PAPER';
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -275,8 +278,7 @@ export class IndividualAlpacaTradingProvider implements ExecutionProvider {
       },
     });
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`ALPACA_TRADING_API_ERROR:${response.status}${body ? `:${body.slice(0, 200)}` : ''}`);
+      throw new Error(`ALPACA_TRADING_API_ERROR:${response.status}`);
     }
     return response.json() as Promise<T>;
   }
@@ -405,26 +407,24 @@ function normalizeIndividualOrder(
 
 export function createIndividualTradingApiProviderFromEnvironment() {
   const config = getServerConfiguration().execution;
-  if (!config.realEnabled || !config.alpacaConfigured || !config.alpacaBaseUrl || !config.alpacaClientId || !config.alpacaClientSecret || !config.brokerAccountId) return null;
-  const baseUrl = config.alpacaBaseUrl;
-  if (!/^https:\/\/(api|paper-api)\.alpaca\.markets$/i.test(baseUrl)) return null;
+  if (config.alpacaProvider.toLowerCase() !== 'alpaca' || !config.alpacaTradingConfigured) return null;
   return new IndividualAlpacaTradingProvider({
-    baseUrl,
-    apiKey: config.alpacaClientId,
-    apiSecret: config.alpacaClientSecret,
-    accountId: config.brokerAccountId,
+    baseUrl: config.alpacaTradingBaseUrl,
+    apiKey: config.alpacaTradingApiKey,
+    apiSecret: config.alpacaTradingApiSecret,
+    accountId: config.alpacaTradingAccountId,
     webhookSecret: config.brokerWebhookSecret,
   });
 }
 
 export function createAlpacaCryptoProviderFromEnvironment() {
   const config = getServerConfiguration().execution;
-  if (!config.realEnabled || !config.alpacaConfigured || !config.provider || !config.alpacaBaseUrl || !config.alpacaClientId || !config.alpacaClientSecret || !config.brokerAccountId) return null;
+  if (!config.realEnabled || !config.brokerProvider || !config.alpacaBrokerConfigured) return null;
   return new AlpacaCryptoProvider({
-    baseUrl: config.alpacaBaseUrl,
-    clientId: config.alpacaClientId,
-    clientSecret: config.alpacaClientSecret,
-    accountId: config.brokerAccountId,
+    baseUrl: config.alpacaBrokerBaseUrl,
+    clientId: config.alpacaBrokerClientId,
+    clientSecret: config.alpacaBrokerClientSecret,
+    accountId: config.alpacaBrokerAccountId,
     webhookSecret: config.brokerWebhookSecret,
   });
 }

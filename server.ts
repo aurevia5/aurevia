@@ -5,10 +5,11 @@ import {loadEnvConfig} from '@next/env';
 import {tickMarkets} from './lib/market';
 import {createIndividualTradingApiProviderFromEnvironment} from './lib/providers/alpaca-crypto-provider';
 import {registerExecutionProvider} from './lib/providers/registry';
+import {getServerConfiguration} from './lib/config/env';
 
 loadEnvConfig(process.cwd());
 const tradingProvider=createIndividualTradingApiProviderFromEnvironment();
-if(tradingProvider)registerExecutionProvider(tradingProvider);
+if(tradingProvider)registerExecutionProvider(tradingProvider,{executionEnabled:getServerConfiguration().execution.realEnabled&&tradingProvider.executionMode==='LIVE'});
 
 const dev=process.env.NODE_ENV!=='production';
 const port=Number(process.env.PORT||3000);

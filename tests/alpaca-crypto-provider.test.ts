@@ -1,7 +1,18 @@
-import {describe,expect,it,vi} from 'vitest';
-import {AlpacaCryptoProvider,buildAlpacaCryptoClient} from '../lib/providers/alpaca-crypto-provider';
+import {afterEach,describe,expect,it,vi} from 'vitest';
+import {AlpacaCryptoProvider,buildAlpacaCryptoClient,createIndividualTradingApiProviderFromEnvironment} from '../lib/providers/alpaca-crypto-provider';
+
+afterEach(()=>vi.unstubAllEnvs());
 
 describe('Alpaca crypto provider safety',()=>{
+	it('selects the Individual Trading API from ALPACA_PROVIDER and rejects unsafe URLs',()=>{
+		for(const [name,value] of Object.entries({ALPACA_PROVIDER:'alpaca',ALPACA_TRADING_BASE_URL:'https://paper-api.alpaca.markets/',ALPACA_API_KEY:'test-key',ALPACA_API_SECRET:'test-secret',ALPACA_ACCOUNT_ID:'test-account',REAL_EXECUTION_ENABLED:'false'}))vi.stubEnv(name,value);
+		const provider=createIndividualTradingApiProviderFromEnvironment();
+		expect(provider?.name).toBe('individual-alpaca-trading');
+		expect(provider?.executionMode).toBe('PAPER');
+		vi.stubEnv('ALPACA_TRADING_BASE_URL','http://paper-api.alpaca.markets');
+		expect(createIndividualTradingApiProviderFromEnvironment()).toBeNull();
+	});
+
 	it('accepts only sandbox broker endpoints for non-authorized execution',()=>{
 		expect(()=>new AlpacaCryptoProvider({
 			baseUrl:'https://broker-api.sandbox.alpaca.markets',
