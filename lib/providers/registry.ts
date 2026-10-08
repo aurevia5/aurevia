@@ -1,7 +1,7 @@
 import {createHmac,timingSafeEqual} from 'node:crypto';
 import type {ExecutionProvider,ProviderConnectionState} from './contracts';
+import {getServerConfiguration} from '@/lib/config/env';
 
-const requiredBrokerVariables=['BROKER_PROVIDER','BROKER_API_URL','BROKER_API_KEY','BROKER_ACCOUNT_ID','BROKER_WEBHOOK_SECRET'] as const;
 let executionProvider:ExecutionProvider|null=null;
 
 export function getExecutionProvider(){return executionProvider;}
@@ -12,11 +12,20 @@ export function registerExecutionProvider(provider:ExecutionProvider){
 }
 
 export async function getExecutionProviderStatus(){
-	const configuredVariables=Object.fromEntries(requiredBrokerVariables.map(name=>[name,Boolean(process.env[name]?.trim())]));
-	const missingConfiguration=requiredBrokerVariables.filter(name=>!configuredVariables[name]);
-	const enabled=process.env.REAL_EXECUTION_ENABLED==='true';
+	const config=getServerConfiguration().execution;
+	const configuredVariables={
+		BROKER_PROVIDER:Boolean(config.provider),
+		BROKER_API_URL:Boolean(config.brokerApiUrl),
+		BROKER_API_KEY:Boolean(config.brokerApiKey),
+		BROKER_ACCOUNT_ID:Boolean(config.brokerAccountId),
+		BROKER_WEBHOOK_SECRET:Boolean(config.brokerWebhookSecret),
+		ALPACA_BROKER_BASE_URL:Boolean(config.alpacaBaseUrl),
+		ALPACA_BROKER_CLIENT_ID:Boolean(config.alpacaClientId),
+		ALPACA_BROKER_CLIENT_SECRET:Boolean(config.alpacaClientSecret),
+	};
+	const missingConfiguration=Object.entries(configuredVariables).filter(([,configured])=>!configured).map(([name])=>name);
 	let state:ProviderConnectionState='DISABLED';
-	if(enabled){
+	if(config.realEnabled){
 		if(missingConfiguration.length)state='NOT_CONFIGURED';
 		else if(!executionProvider)state='CONFIGURED';
 		else{
@@ -26,8 +35,8 @@ export async function getExecutionProviderStatus(){
 	}
 	return {
 		state,
-		enabled,
-		providerName:process.env.BROKER_PROVIDER?.trim()||null,
+		enabled:config.realEnabled,
+		providerName:config.provider,
 		adapterRegistered:!!executionProvider,
 		configuredVariables,
 		missingConfiguration,

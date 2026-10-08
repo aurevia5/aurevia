@@ -41,6 +41,7 @@ export async function POST(req:Request){
 		}
 		const result=await db.$transaction(async tx=>{
 			const created=await tx.user.create({data:{email,passwordHash:await bcrypt.hash(p.password,12),name:p.name,country:p.country,phone:p.phone||null,accountMode:p.accountMode,requiresRegistrationVerification:Boolean(channel),termsAcceptedAt:new Date()}});
+			await tx.waitlistEntry.updateMany({where:{email, userId:null},data:{userId:created.id,status:'REGISTERED',updatedAt:new Date()}});
 			await tx.kycProfile.upsert({where:{userId:created.id},update:{dob:dateOfBirth},create:{userId:created.id,dob:dateOfBirth}});
 						if(created.accountMode===AccountMode.DEMO)await initializeDemoAccount(tx,created.id);
 						else await ensureUserLedger(tx,created.id,created.accountMode);

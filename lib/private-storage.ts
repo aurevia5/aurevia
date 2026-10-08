@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {getServerConfiguration} from './config/env';
 
 export type PrivateStorageArea='kyc'|'avatar'|'receipt'|'support';
 
@@ -27,15 +28,14 @@ export class PrivateStorageError extends Error {
 const privateBucketCache=new Map<string,{expiresAt:number;promise:Promise<void>}>();
 
 function configuration():StorageConfiguration{
-	const baseUrl=(process.env.SUPABASE_URL||'').trim().replace(/\/$/,'');
-	const serviceKey=(process.env.SUPABASE_SERVICE_ROLE_KEY||'').trim();
-	if(!baseUrl||!serviceKey)throw new PrivateStorageError('Private file storage is not configured.',503);
+	const config=getServerConfiguration().supabase;
+	if(!config.url||!config.serviceRoleKey)throw new PrivateStorageError('Private file storage is not configured.',503);
 	try{
-		const parsed=new URL(baseUrl);
+		const parsed=new URL(config.url);
 		const isLocalHttp=parsed.protocol==='http:'&&['localhost','127.0.0.1','::1'].includes(parsed.hostname);
-		if((parsed.protocol!=='https:'&&!isLocalHttp)||parsed.username||parsed.password||parsed.pathname!=='/'||parsed.search||parsed.hash)throw new Error('Invalid Storage URL');
-	}catch{throw new PrivateStorageError('Private file storage is not configured.',503)}
-	return {baseUrl,serviceKey};
+		if((parsed.protocol!=='https:'&&!isLocalHttp)||parsed.username||parsed.password||parsed.pathname!=='/'||parsed.search||parsed.hash)throw new PrivateStorageError('Private file storage URL is invalid.',503);
+	}catch{throw new PrivateStorageError('Private file storage URL is invalid.',503)}
+	return {baseUrl:config.url,serviceKey:config.serviceRoleKey};
 }
 
 function storageHeaders(config:StorageConfiguration,contentType?:string){
@@ -150,5 +150,6 @@ export async function createPrivateSignedUrl(area:PrivateStorageArea,ownerId:str
 }
 
 export function isPrivateStorageConfigured(){
-	return !!process.env.SUPABASE_URL&&!!process.env.SUPABASE_SERVICE_ROLE_KEY;
+	const config=getServerConfiguration().supabase;
+	return Boolean(config.url&&config.serviceRoleKey);
 }

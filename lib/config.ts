@@ -1,8 +1,11 @@
+import {getServerConfiguration} from './config/env';
+
 export function getSupportContact(){
+	const config=getServerConfiguration().smtp;
 	return {
-		email:process.env.SUPPORT_EMAIL?.trim()||'',
-		complaintsEmail:process.env.COMPLAINTS_EMAIL?.trim()||'',
-		phone:process.env.SUPPORT_PHONE?.trim()||'',
+		email:config.supportEmail,
+		complaintsEmail:config.complaintsEmail,
+		phone:config.supportPhone,
 	};
 }
 

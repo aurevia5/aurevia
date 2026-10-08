@@ -123,6 +123,13 @@ enum VerificationChannel {
   SMS
 }
 
+enum WaitlistEntryStatus {
+  WAITING
+  INVITED
+  REGISTERED
+  REMOVED
+}
+
 enum ClientStoryStatus {
   DRAFT
   PENDING_VERIFICATION
@@ -198,7 +205,28 @@ model User {
   investments InvestmentRequest[]
   portfolioSnapshots PortfolioSnapshot[]
   createdInvestmentOpportunities InvestmentOpportunity[] @relation("InvestmentOpportunityCreator")
+  waitlistEntry WaitlistEntry?
   avatarKey String?
+}
+
+model WaitlistEntry {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  country String
+  investorType String @default("INDIVIDUAL")
+  phone String?
+  consent Boolean
+  status WaitlistEntryStatus @default(WAITING)
+  source String?
+  notes String?
+  userId String? @unique
+  user User? @relation(fields:[userId],references:[id],onDelete:SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status,country,createdAt])
+  @@index([createdAt])
 }
 
 model Notification {

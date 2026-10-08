@@ -1,13 +1,14 @@
 import {randomInt,createHmac,timingSafeEqual} from 'node:crypto';
 import {VerificationChannel} from '@prisma/client';
 import {verificationConfig} from './config';
+import {getServerConfiguration} from './config/env';
 
 type Contact={email:string;phone:string|null;name:string|null};
 
 function provider(channel:VerificationChannel){
-	const prefix=channel==='EMAIL'?'VERIFICATION_EMAIL':'VERIFICATION_SMS';
-	const url=process.env[`${prefix}_API_URL`];
-	const key=process.env[`${prefix}_API_KEY`];
+	const config=getServerConfiguration();
+	const url=channel===VerificationChannel.EMAIL?config.verification.emailApiUrl:config.verification.smsApiUrl;
+	const key=channel===VerificationChannel.EMAIL?config.verification.emailApiKey:config.verification.smsApiKey;
 	if(!url||!key)return null;
 	try{
 		const parsed=new URL(url);
@@ -31,7 +32,7 @@ export function availableVerificationChannel(phone:string|null){
 	return null;
 }
 
-export function registrationVerificationChannel(phone:string|null,phoneRequired=process.env.PHONE_VERIFICATION_REQUIRED==='true'){
+export function registrationVerificationChannel(phone:string|null,phoneRequired=getServerConfiguration().verification.phoneVerificationRequired){
 	if(phoneRequired)return phone&&provider(VerificationChannel.SMS)?VerificationChannel.SMS:null;
 	return provider(VerificationChannel.EMAIL)?VerificationChannel.EMAIL:null;
 }
@@ -41,7 +42,7 @@ export function generateVerificationCode(){
 }
 
 export function hashVerificationCode(userId:string,code:string){
-	const secret=process.env.VERIFICATION_CODE_SECRET||process.env.NEXTAUTH_SECRET;
+	const secret=getServerConfiguration().verification.codeSecret;
 	if(!secret)throw new Error('VERIFICATION_SECRET_UNAVAILABLE');
 	return createHmac('sha256',secret).update(`${userId}:${code}`).digest('hex');
 }

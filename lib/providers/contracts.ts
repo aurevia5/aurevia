@@ -4,9 +4,11 @@ export type ProviderOrderRequest={
 	clientOrderId:string;
 	accountId:string;
 	symbol:string;
+	assetId?:string;
 	side:'BUY'|'SELL';
-	type:'MARKET'|'LIMIT'|'STOP';
+	type:'MARKET'|'LIMIT'|'STOP'|'STOP_LIMIT';
 	quantity:string;
+	timeInForce?:'gtc'|'ioc';
 	limitPrice?:string;
 	stopPrice?:string;
 };

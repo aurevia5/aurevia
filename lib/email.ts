@@ -1,25 +1,21 @@
 import nodemailer from 'nodemailer';
+import {getServerConfiguration} from './config/env';
 
 export type EmailDelivery={sent:boolean;reason?:'not-configured'|'failed'};
 
 let warnedAboutConfiguration=false;
 
 export function isSmtpConfigured(){
-	const port=Number(process.env.SMTP_PORT||587);
-	return !!process.env.SMTP_HOST?.trim()&&!!process.env.SMTP_USER?.trim()&&!!process.env.SMTP_PASSWORD&&!!process.env.SMTP_FROM?.trim()&&Number.isInteger(port)&&port>0&&port<=65535;
+	return getServerConfiguration().smtp.configured;
 }
 
 function createTransport(){
-	const host=process.env.SMTP_HOST?.trim();
-	const user=process.env.SMTP_USER?.trim();
-	const password=process.env.SMTP_PASSWORD;
-	const port=Number(process.env.SMTP_PORT||587);
-	const from=process.env.SMTP_FROM?.trim();
-	if(!host||!user||!password||!from||!isSmtpConfigured()){
+	const config=getServerConfiguration().smtp;
+	if(!config.configured){
 		if(!warnedAboutConfiguration){console.warn('SMTP delivery is not configured; no email was sent.');warnedAboutConfiguration=true;}
 		return null;
 	}
-	return {transport:nodemailer.createTransport({host,port,secure:port===465,requireTLS:port!==465,auth:{user,pass:password}}),from};
+	return {transport:nodemailer.createTransport({host:config.host,port:config.port,secure:config.port===465,requireTLS:config.port!==465,auth:{user:config.user,pass:config.password}}),from:config.from};
 }
 
 export async function sendEmail(input:{to:string;subject:string;text:string}):Promise<EmailDelivery>{
@@ -36,13 +32,13 @@ export async function sendEmail(input:{to:string;subject:string;text:string}):Pr
 }
 
 export function sendSupportEmail(subject:string,text:string){
-	const recipient=process.env.SUPPORT_EMAIL?.trim();
+	const recipient=getServerConfiguration().smtp.supportEmail;
 	if(!recipient){console.warn('Support email was not sent: SUPPORT_EMAIL is not configured.');return Promise.resolve<EmailDelivery>({sent:false,reason:'not-configured'});}
 	return sendEmail({to:recipient,subject,text});
 }
 
 export function sendComplaintEmail(subject:string,text:string){
-	const recipient=process.env.COMPLAINTS_EMAIL?.trim();
+	const recipient=getServerConfiguration().smtp.complaintsEmail;
 	if(!recipient){console.warn('Complaint email was not sent: COMPLAINTS_EMAIL is not configured.');return Promise.resolve<EmailDelivery>({sent:false,reason:'not-configured'});}
 	return sendEmail({to:recipient,subject,text});
 }

@@ -28,7 +28,12 @@ export async function GET(){
 				adapterRegistered:execution.adapterRegistered,
 				configuredVariables:execution.configuredVariables,
 				missingConfiguration:execution.missingConfiguration,
-				executionPathEnabled:false,
+				executionPathEnabled:execution.state==='CONNECTED',
+				cryptoCapabilities:{
+					orderSubmission:execution.state==='CONNECTED',
+					positionAndBalanceReconciliation:false,
+					webhookPersistence:false,
+				},
 			},
 			marketData:{
 				status:marketProvider?'CONFIGURED':'NOT_CONFIGURED',

@@ -9,6 +9,7 @@ import {db} from '@/lib/db';
 import {createNotification} from '@/lib/notifications';
 import {rateLimit} from '@/lib/rate-limit';
 import {resolveCredentialLookup} from '@/lib/credential-lookup';
+import {getServerConfiguration} from '@/lib/config/env';
 
 function headerValue(value:string|string[]|undefined){return Array.isArray(value)?value[0]||'':value||''}
 function auditClientIp(headers:IncomingHttpHeaders){
@@ -55,9 +56,8 @@ export const authOptions:NextAuthOptions={
         }catch(error){console.warn(`Login audit write failed (${safeAuditError(error)}).`)}
       };
       try{rateLimit(`credential-login:${ipAddress||'unknown'}`,20,15*60_000)}catch{await writeLoginAudit('FAILED',undefined,undefined,'RATE_LIMITED');return null}
-      const adminUsername=process.env.ADMIN_USERNAME?.trim();
-      const adminEmail=process.env.ADMIN_EMAIL?.trim().toLowerCase();
-      const {isAdminUsername,lookupEmail}=resolveCredentialLookup(username,email,adminUsername,adminEmail);
+      const authConfig=getServerConfiguration().auth;
+      const {isAdminUsername,lookupEmail}=resolveCredentialLookup(username,email,authConfig.adminUsername,authConfig.adminEmail);
       if(!lookupEmail){await writeLoginAudit('FAILED',undefined,undefined,'MISSING_IDENTIFIER');return null;}
       const u=await db.user.findUnique({where:{email:lookupEmail}});
       if(!u||u.status!=='ACTIVE'||(u.role==='USER'&&u.requiresRegistrationVerification&&!u.verifiedAt)){
