@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-import {RefreshCw} from 'lucide-react';
+import {signOut} from 'next-auth/react';
+import {LogOut,RefreshCw} from 'lucide-react';
 import Nav from '@/components/Nav';
 import StatCard from '@/components/StatCard';
 import ClientStoriesPanel from '@/components/ClientStoriesPanel';
@@ -17,6 +18,7 @@ export default function Admin(){
  const [initialLoading,setInitialLoading]=useState(true); const [refreshing,setRefreshing]=useState(false); const [loadError,setLoadError]=useState(''); const loadInFlight=useRef(false);
  const [expandedLoginUser,setExpandedLoginUser]=useState(''); const [loginHistory,setLoginHistory]=useState<Record<string,{loading:boolean;events:LoginAuditEvent[];error:string}>>({});
  const [newInstrument,setNewInstrument]=useState({symbol:'',name:'',baseAsset:'',quoteAsset:'USD',price:'1',leverage:'1',makerFee:'0.001',takerFee:'0.0015'});
+ async function logout(){await signOut({callbackUrl:'/login'});}
  async function load(){
   if(loadInFlight.current)return;
   loadInFlight.current=true;setRefreshing(true);
@@ -50,7 +52,7 @@ export default function Admin(){
  async function openFundingReceipt(id:string){try{const response=await fetch(`/api/admin/funding/${encodeURIComponent(id)}/receipt`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(result.error||'Receipt unavailable.');window.open(result.url,'_blank','noopener,noreferrer')}catch(error){setMsg(error instanceof Error?error.message:'Receipt unavailable.')}}
  async function instrumentPatch(id:string,data:Partial<Instrument>){const r=await fetch('/api/admin/instruments',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({id,...data})});setMsg(r.ok?'Instrument updated':(await r.json()).error||'Instrument update failed');load()}
  async function createInstrument(){const p={...newInstrument,price:Number(newInstrument.price),leverage:Number(newInstrument.leverage),makerFee:Number(newInstrument.makerFee),takerFee:Number(newInstrument.takerFee),enabled:true};const r=await fetch('/api/admin/instruments',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(p)});const j=await r.json();setMsg(r.ok?'Instrument created':j.error||'Create failed');if(r.ok)setNewInstrument({symbol:'',name:'',baseAsset:'',quoteAsset:'USD',price:'1',leverage:'1',makerFee:'0.001',takerFee:'0.0015'});load()}
- return <><Nav/><main className="mx-auto max-w-7xl px-4 py-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="gold text-xs font-bold tracking-[.25em]">CONTROL CENTER</div><h1 className="text-3xl font-black">Aurevia administration</h1></div><div className="flex gap-2"><button className="btn min-h-11 bg-white/5" type="button" disabled={refreshing} aria-busy={refreshing} onClick={()=>void load()}><RefreshCw size={15}/>{refreshing?'Refreshing…':'Refresh data'}</button><a className="btn bg-white/5" href="/admin/login">Admin login</a></div></div>{msg&&<p className="mt-2 muted" role="status">{msg}</p>}
+ return <><Nav/><main className="mx-auto max-w-7xl px-4 py-6"><div className="flex flex-wrap items-end justify-between gap-3"><div><div className="gold text-xs font-bold tracking-[.25em]">CONTROL CENTER</div><h1 className="text-3xl font-black">Aurevia administration</h1></div><div className="flex min-w-0 flex-wrap gap-2"><button className="btn min-h-11 bg-white/5" type="button" disabled={refreshing} aria-busy={refreshing} onClick={()=>void load()}><RefreshCw size={15}/>{refreshing?'Refreshing…':'Refresh data'}</button><button className="btn min-h-11 bg-white/5" type="button" onClick={()=>void logout()}><LogOut size={15}/>Logout</button><a className="btn bg-white/5" href="/admin/login">Admin login</a></div></div>{msg&&<p className="mt-2 muted" role="status">{msg}</p>}
  {initialLoading&&<p className="mt-3 min-h-8 text-sm muted" role="status">Loading control center data…</p>}
  {loadError&&<div className="account-callout mt-3" role="alert"><span>{loadError}</span><button className="text-link" type="button" disabled={refreshing} onClick={()=>void load()}>Retry</button></div>}
  <nav className="my-4 flex gap-2 overflow-x-auto pb-1" aria-label="Admin operations sections"><a className="btn min-h-11 shrink-0 bg-white/5" href="#overview">Overview</a><a className="btn min-h-11 shrink-0 bg-white/5" href="#providers">Providers</a><a className="btn min-h-11 shrink-0 bg-white/5" href="#operations">Orders / Ledger</a><a className="btn min-h-11 shrink-0 bg-white/5" href="#kyc-verification">KYC review</a><a className="btn min-h-11 shrink-0 bg-white/5" href="#client-stories">Client stories</a><a className="btn min-h-11 shrink-0 bg-white/5" href="/admin/investments">Investment operations</a><a className="btn min-h-11 shrink-0 bg-white/5" href="/admin/payments">Payments</a><a className="btn min-h-11 shrink-0 bg-white/5" href="/admin/support">Nova support</a><a className="btn min-h-11 shrink-0 bg-white/5" href="/markets">Markets</a><a className="btn min-h-11 shrink-0 bg-white/5" href="/notifications">Notifications</a></nav>

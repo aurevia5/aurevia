@@ -90,6 +90,10 @@ export class MarketDataError extends Error {
 
 export function getMarketAsset(id:string){return MARKET_ASSETS.find(asset=>asset.id===id.toUpperCase());}
 
+export function filterSupportedMarketAssets<T extends {symbol:string}>(assets:T[]):T[]{
+  return assets.filter(asset=>!!getMarketAsset(asset.symbol));
+}
+
 function numberOrNull(value:unknown):number|null{
   return typeof value==='number'&&Number.isFinite(value)?value:null;
 }

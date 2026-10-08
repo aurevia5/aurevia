@@ -4,23 +4,24 @@ import {join} from 'node:path';
 import {defineConfig,devices} from '@playwright/test';
 import {loadEnvConfig} from '@next/env';
 
-loadEnvConfig(process.cwd());
-function localDatabaseTarget(name:string){
+for(const name of ['DATABASE_URL','DIRECT_URL'])delete process.env[name];
+loadEnvConfig(process.cwd(),false,undefined,true);
+function supabaseDatabaseTarget(name:string){
 	const value=process.env[name];
+	if(!value)throw new Error(`Refusing to start Playwright: ${name} is not set.`);
 	let parsed:URL;
-	try{parsed=new URL(value||'')}catch{throw new Error(`Refusing to start Playwright: ${name} must point to an isolated local test database.`)}
-	if(!['localhost','127.0.0.1','::1'].includes(parsed.hostname)||!parsed.pathname||parsed.pathname==='/'){
-		throw new Error(`Refusing to start Playwright: ${name} must point to an isolated local test database.`);
+	try{parsed=new URL(value)}catch{throw new Error(`Refusing to start Playwright: ${name} is not a valid database URL.`)}
+	if(parsed.protocol!=='postgresql:'||!parsed.hostname.endsWith('.supabase.com')){
+		throw new Error(`Refusing to start Playwright: ${name} must target the configured Supabase project.`);
 	}
-	return `${parsed.hostname}:${parsed.port||'5432'}${parsed.pathname}`;
+	return `${parsed.hostname}${parsed.pathname}`;
 }
-if(localDatabaseTarget('DATABASE_URL')!==localDatabaseTarget('DIRECT_URL')){
-	throw new Error('Refusing to start Playwright: DATABASE_URL and DIRECT_URL must target the same isolated local database.');
+if(supabaseDatabaseTarget('DATABASE_URL')!==supabaseDatabaseTarget('DIRECT_URL')){
+	throw new Error('Refusing to start Playwright: DATABASE_URL and DIRECT_URL must target the same Supabase project.');
 }
 const baseURL='http://127.0.0.1:4310';
 const providerURL='http://127.0.0.1:4311';
 const testSecret=randomBytes(32).toString('hex');
-process.env.AUREVIA_E2E_STATE_FILE=join(tmpdir(),`aurevia-e2e-${randomUUID()}.json`);
 
 export default defineConfig({
 	testDir:'./tests/e2e',

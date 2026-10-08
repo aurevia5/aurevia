@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {getMarketAsset,getMarketHistory,getMarketQuote,MarketDataError} from '../lib/live-market';
+import {filterSupportedMarketAssets,getMarketAsset,getMarketHistory,getMarketQuote,MarketDataError} from '../lib/live-market';
 
 function chartResponse(price=41000,marketAgeSeconds=0){
 	const now=Math.floor(Date.now()/1000);
@@ -59,5 +59,10 @@ describe('live Yahoo market service',()=>{
 
 	it('rejects unknown symbols at lookup',()=>{
 		expect(getMarketAsset('NOT-A-REAL-SYMBOL')).toBeUndefined();
+	});
+
+	it('filters synthetic trading symbols from a market asset batch',()=>{
+		const assets=[{symbol:'DJI'},{symbol:'E2E917F9FA/USD'}];
+		expect(filterSupportedMarketAssets(assets)).toEqual([{symbol:'DJI'}]);
 	});
 });

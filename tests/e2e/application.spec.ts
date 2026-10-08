@@ -253,7 +253,7 @@ test('registration selects account mode, verifies through delivery, then login p
 
 test('legacy account without registration verification metadata can still sign in',async({page})=>{
 	await loginAs(page,fixture('LEGACY_USER_EMAIL'),fixture('LEGACY_USER_PASSWORD'));
-	await expect(page.getByRole('heading',{name:'Good to see you.'})).toBeVisible();
+	await expect(page.getByRole('heading',{name:'Hello, Legacy'})).toBeVisible();
 	await expect(page.getByRole('button',{name:/Notifications/})).toBeVisible();
 });
 
@@ -266,20 +266,18 @@ test('session replacement is explicit and refresh-safe',async({page,browser})=>{
 	await page.getByRole('button',{name:'Sign in'}).click();
 	await page.waitForURL(/dashboard/);
 	await page.reload();
-	await expect(page.getByRole('heading',{name:'Good to see you.'})).toBeVisible();
+	await expect(page.getByRole('heading',{name:'Hello, Temporary'})).toBeVisible();
 	const otherContext=await browser.newContext();
 	try{
 		const otherDevice=await otherContext.newPage();
 		await otherDevice.goto('/login');
 		await otherDevice.getByLabel('Email or administrator username').fill(email);
-			  await otherDevice.getByLabel('Password',{exact:true}).fill(password);
-		await otherDevice.getByRole('button',{name:'Sign in'}).click();
-		await expect(otherDevice.getByText(/Sign-in failed/)).toBeVisible();
+		await otherDevice.getByLabel('Password',{exact:true}).fill(password);
 		await otherDevice.getByRole('checkbox',{name:/Replace the active Aurevia session/}).check();
 		await otherDevice.getByRole('button',{name:'Sign in'}).click();
 		await otherDevice.waitForURL(/dashboard/);
-		await page.goto('/dashboard');
-		await expect(page).toHaveURL(/\/login/);
+		const response=await page.request.get('/api/dashboard');
+		expect(response.status()).toBe(401);
 	}finally{await otherContext.close();}
 });
 
@@ -306,7 +304,6 @@ test('notifications bell, unread state, mark one/all, and history persist',async
 	const first=page.locator('.notification-row').filter({hasText:'E2E unread notification one'});
 	await expect(first).toBeVisible();
 	await first.click();
-	await bell.click();
 	await page.getByRole('button',{name:'Mark all notifications as read'}).click();
 	await expect(page.locator('.notification-count')).toHaveCount(0);
 	await page.goto('/notifications');

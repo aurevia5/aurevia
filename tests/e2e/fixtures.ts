@@ -32,8 +32,19 @@ export async function logout(page:Page){
 }
 
 export async function expectNoHorizontalOverflow(page:Page){
-	const dimensions=await page.evaluate(()=>({viewport:window.innerWidth,document:document.documentElement.scrollWidth}));
-	expect(dimensions.document,`horizontal overflow at ${dimensions.viewport}px`).toBeLessThanOrEqual(dimensions.viewport+1);
+	const dimensions=await page.evaluate(()=>{
+		const viewport=window.innerWidth;
+		const offenders=[...document.querySelectorAll('body *')]
+			.map(element=>{
+				const rect=element.getBoundingClientRect();
+				const style=getComputedStyle(element);
+				return {tag:element.tagName,selector:element.id?`#${element.id}`:element.className,rect:{left:rect.left,right:rect.right,width:rect.width},position:style.position,overflow:style.overflow};
+			})
+			.filter(item=>item.rect.right>viewport+1||item.rect.left<-1)
+			.slice(0,20);
+		return {viewport,document:document.documentElement.scrollWidth,offenders};
+	});
+	expect(dimensions.document,`horizontal overflow at ${dimensions.viewport}px: ${JSON.stringify(dimensions.offenders)}`).toBeLessThanOrEqual(dimensions.viewport+1);
 }
 
 test.beforeEach(async({page},testInfo)=>{

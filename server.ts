@@ -35,8 +35,8 @@ async function startServer(){
  }
  try{
   await app.prepare();
- }catch{
-  console.error('Next.js preparation failed; startup aborted');
+ }catch(error){
+  console.error('Next.js preparation failed; startup aborted', error);
   process.exit(1);
  }
 

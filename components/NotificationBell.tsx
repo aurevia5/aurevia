@@ -59,8 +59,10 @@ export default function NotificationBell(){
 			catch(exception){setError(exception instanceof Error?exception.message:'Unable to update notifications.');return;}
 			finally{setBusy(false);}
 		}
-		setOpen(false);
-		if(item.actionUrl)router.push(item.actionUrl);
+		if(item.actionUrl){
+			setOpen(false);
+			router.push(item.actionUrl);
+		}
 	}
 
 	async function markAllRead(){

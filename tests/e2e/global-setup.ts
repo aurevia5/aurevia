@@ -1,4 +1,6 @@
 import {randomBytes,randomUUID} from 'node:crypto';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {writeFile} from 'node:fs/promises';
 import {loadEnvConfig} from '@next/env';
 import {AccountMode,PrismaClient,Role,UserStatus,NotificationType,FundingStatus,FundingType} from '@prisma/client';
@@ -6,17 +8,14 @@ import bcrypt from 'bcryptjs';
 import {initializeDemoAccount} from '../../lib/ledger';
 
 export default async function globalSetup(){
-	loadEnvConfig(process.cwd());
+	loadEnvConfig(process.cwd(),false,undefined,true);
 	const databaseUrl=process.env.DATABASE_URL;
-	if(!databaseUrl)throw new Error('Playwright E2E requires an isolated local DATABASE_URL.');
-	const databaseHost=new URL(databaseUrl).hostname;
-	if(!['localhost','127.0.0.1','::1'].includes(databaseHost))throw new Error('Refusing to create Playwright fixtures in a non-local database.');
 	const directUrl=process.env.DIRECT_URL;
-	if(!directUrl)throw new Error('Playwright E2E requires an isolated local DIRECT_URL.');
-	const directTarget=new URL(directUrl);
-	if(!['localhost','127.0.0.1','::1'].includes(directTarget.hostname))throw new Error('Refusing to create Playwright fixtures with a non-local DIRECT_URL.');
+	if(!databaseUrl||!directUrl)throw new Error('Playwright E2E requires DATABASE_URL and DIRECT_URL.');
 	const databaseTarget=new URL(databaseUrl);
-	if(`${databaseTarget.hostname}:${databaseTarget.port||'5432'}${databaseTarget.pathname}`!==`${directTarget.hostname}:${directTarget.port||'5432'}${directTarget.pathname}`)throw new Error('Refusing to create Playwright fixtures when DATABASE_URL and DIRECT_URL target different databases.');
+	const directTarget=new URL(directUrl);
+	if(!databaseTarget.hostname.endsWith('.supabase.com')||!directTarget.hostname.endsWith('.supabase.com'))throw new Error('Refusing to create Playwright fixtures outside the configured Supabase project.');
+	if(databaseTarget.hostname!==directTarget.hostname||databaseTarget.pathname!==directTarget.pathname)throw new Error('Refusing to create Playwright fixtures when DATABASE_URL and DIRECT_URL target different databases.');
 
 	const db=new PrismaClient();
 	const runId=randomUUID();
@@ -39,8 +38,7 @@ export default async function globalSetup(){
 	const symbols=[`E2E${runId.slice(0,6).toUpperCase()}A/USD`,`E2E${runId.slice(0,6).toUpperCase()}B/USD`];
 	const instrumentIds:string[]=[];
 	let paymentMethodId:string|undefined;
-	const stateFile=process.env.AUREVIA_E2E_STATE_FILE;
-	if(!stateFile)throw new Error('Playwright E2E state file was not configured.');
+	const stateFile=join(tmpdir(),'aurevia-e2e-state.json');
 
 	const state={runId,userId,adminId,legacyUserId,investorId,userEmail,adminEmail,legacyUserEmail,investorEmail,userPassword,adminPassword,legacyUserPassword,investorPassword,registrationEmail,registrationPassword,instrumentIds,symbols};
 	process.env.AUREVIA_E2E_USER_EMAIL=userEmail;

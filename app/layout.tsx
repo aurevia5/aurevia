@@ -1,12 +1,16 @@
 import type {ReactNode} from 'react';
+import {cookies} from 'next/headers';
 import Script from 'next/script';
 import './globals.css';
 import './experience.css';
 import StartupShell from '@/components/StartupShell';
 import Providers from '@/components/Providers';
+import {normalizeLocale} from '@/lib/i18n';
 
 export const metadata={title:'Aurevia Invest',description:'Aurevia Invest — digital trading and investment platform'};
 
 export default function RootLayout({children}:{children:ReactNode}){
-  return <html lang="en"><body><Script id="aurevia-startup-state" strategy="beforeInteractive">{`try{if(sessionStorage.getItem('aurevia-startup-complete')==='1')document.documentElement.dataset.aureviaStartupComplete='true'}catch{}`}</Script><Providers><StartupShell>{children}</StartupShell></Providers></body></html>;
+  const initialLocale=normalizeLocale(cookies().get('aurevia-locale')?.value ?? null);
+  const direction=initialLocale==='ar'?'rtl':'ltr';
+  return <html lang={initialLocale} dir={direction}><body><Script id="aurevia-startup-state" strategy="beforeInteractive">{`try{if(sessionStorage.getItem('aurevia-startup-complete')==='1')document.documentElement.dataset.aureviaStartupComplete='true'}catch{}`}</Script><Providers initialLocale={initialLocale}><StartupShell>{children}</StartupShell></Providers></body></html>;
 }

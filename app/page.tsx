@@ -1,3 +1,5 @@
+'use client';
+
 import Image from 'next/image';
 import Link from 'next/link';
 import {Activity,ArrowRight,ArrowUpRight,BookOpen,Check,ChevronDown,CircleHelp,Globe2,Landmark,LockKeyhole,ShieldCheck,WalletCards} from 'lucide-react';
@@ -5,77 +7,75 @@ import Nav from '@/components/Nav';
 import HomeAccountActions from '@/components/HomeAccountActions';
 import HomeMarketPreview from '@/components/HomeMarketPreview';
 import HomeMarketTicker from '@/components/HomeMarketTicker';
-
-const principles=[
-	{icon:LockKeyhole,title:'Account access',copy:'Credential-based sign-in and protected account areas keep personal views behind your session.'},
-	{icon:WalletCards,title:'Portfolio visibility',copy:'Review your ledger balance, positions, orders, and funding requests in one place.'},
-	{icon:Activity,title:'Market information',copy:'Explore the instruments currently available in the clearly labeled demo environment.'},
-	{icon:ShieldCheck,title:'Account controls',copy:'Manage verification details and review the status of submitted information.'},
-	{icon:Landmark,title:'Clear account records',copy:'Funding requests and account activity are presented with visible review states.'},
-	{icon:Globe2,title:'Built for every screen',copy:'A responsive interface keeps essential account actions usable on mobile and desktop.'},
-];
-
-const steps=[
-	['01','Create your account','Set up your profile and sign in.'],
-	['02','Complete verification','Submit the details requested for review.'],
-	['03','Request funding','Send a funding request for review. Demo methods are simulations.'],
-	['04','Explore markets','Review instruments available in the demo environment.'],
-	['05','Monitor your portfolio','Track ledger balance, positions, and orders.'],
-	['06','Manage positions','Review or close supported demo positions.'],
-];
-
-const assetClasses=[
-	{name:'Forex',status:'Available in demo',copy:'EUR/USD instrument in the simulated market feed.',icon:Globe2,available:true},
-	{name:'Crypto',status:'Available in demo',copy:'BTC/USD and ETH/USD simulated instruments.',icon:Activity,available:true},
-	{name:'Stocks',status:'Coming soon',copy:'Equity instruments are not enabled in this demo.',icon:Landmark},
-	{name:'ETFs',status:'Coming soon',copy:'ETF instruments are not enabled in this demo.',icon:WalletCards},
-	{name:'Indices',status:'Coming soon',copy:'Index instruments are not enabled in this demo.',icon:ArrowUpRight},
-	{name:'Commodities',status:'Coming soon',copy:'Commodity instruments are not enabled in this demo.',icon:CircleHelp},
-];
-
-const questions=[
-	['What can I do with an Aurevia account?','You can review demo market information, submit simulated funding requests, manage verification details, and use the trading interface for supported demo instruments.'],
-	['How does verification work?','Submit your personal and identity details from Verification. The account status remains pending until an administrator reviews it.'],
-	['Are funding methods connected to a bank or wallet?','No. The available funding methods are simulations and do not connect to a bank, card network, crypto wallet, or custody provider.'],
-	['Is the market feed live?','The Markets page requests informational quotes from Yahoo Finance, an unofficial provider that may be delayed or unavailable. Trading uses a separate simulated market feed; neither feed connects to a broker or executes real trades.'],
-	['Are trading fees shown?','The trading interface uses the fee settings configured for the demo instruments. Review the order estimate before submitting an order.'],
-	['Is this financial advice?','No. Platform information is general and educational, not individualized investment advice. Trading involves risk, including the possible loss of capital.'],
-];
+import {useLocale} from '@/lib/i18n-context';
 
 export default function Home(){
+	const {translate}=useLocale();
+	const principles=[
+		{icon:LockKeyhole,title:translate('accountAccessPrinciple'),copy:translate('accountAccessDescription')},
+		{icon:WalletCards,title:translate('portfolioVisibilityPrinciple'),copy:translate('portfolioVisibilityDescription')},
+		{icon:Activity,title:translate('marketInformationPrincipleLabel'),copy:translate('marketInformationDescription')},
+		{icon:ShieldCheck,title:translate('accountControlsPrinciple'),copy:translate('accountControlsDescription')},
+		{icon:Landmark,title:translate('clearAccountRecordsPrinciple'),copy:translate('clearAccountRecordsDescription')},
+		{icon:Globe2,title:translate('builtForEveryScreen'),copy:translate('builtForEveryScreenDescription')},
+	];
+	const steps=[
+		['01',translate('createYourAccount'),translate('createYourAccount')],
+		['02',translate('completeVerification'),translate('completeVerification')],
+		['03',translate('requestFunding'),translate('requestFunding')],
+		['04',translate('exploreMarkets'),translate('exploreMarkets')],
+		['05',translate('monitorPortfolio'),translate('monitorPortfolio')],
+		['06',translate('managePositions'),translate('managePositions')],
+	];
+	const assetClasses=[
+		{name:'Forex',status:translate('availableInDemo'),copy:translate('forexDescription'),icon:Globe2,available:true},
+		{name:'Crypto',status:translate('availableInDemo'),copy:translate('cryptoDescription'),icon:Activity,available:true},
+		{name:'Stocks',status:translate('comingSoon'),copy:translate('stocksDescription'),icon:Landmark},
+		{name:'ETFs',status:translate('comingSoon'),copy:translate('etfsDescription'),icon:WalletCards},
+		{name:'Indices',status:translate('comingSoon'),copy:translate('indicesDescription'),icon:ArrowUpRight},
+		{name:'Commodities',status:translate('comingSoon'),copy:translate('commoditiesDescription'),icon:CircleHelp},
+	];
+	const questions=[
+		[translate('whatCanIUse'),translate('whatCanIUseDescription')],
+		[translate('howVerificationWorks'),translate('howVerificationWorksDescription')],
+		[translate('fundingMethodsConnected'),translate('fundingMethodsConnectedDescription')],
+		[translate('marketFeedLive'),translate('marketFeedLiveDescription')],
+		[translate('tradingFeesShown'),translate('tradingFeesShownDescription')],
+		[translate('financialAdvice'),translate('financialAdviceDescription')],
+	];
 	return <>
 		<Nav/>
 		<main className="home-root">
 			<section className="home-hero">
 				<div className="home-hero-grid" aria-hidden="true"/>
 				<div className="home-hero-copy">
-					<div className="home-kicker"><span/> Investment tools, in clear view</div>
+					<div className="home-kicker"><span/> {translate('homeHeroKicker')}</div>
 					<div className="home-brand-lockup"><Image src="/aurevia-logo.png" alt="Aurevia Invest" width={46} height={46} priority/><span>AUREVIA <b>INVEST</b></span></div>
-					<h1>Invest with clarity.<br/><em>Trade with confidence.</em></h1>
-					<p className="home-hero-lede">Explore market information, review your portfolio, and manage supported demo positions from one considered workspace.</p>
+					<h1>{translate('homeHeroTitle')}<br/><em>{translate('homeHeroAccent')}</em></h1>
+					<p className="home-hero-lede">{translate('homeHeroDescription')}</p>
 					<div className="home-hero-actions"><HomeAccountActions variant="hero"/></div>
-					<div className="home-hero-note"><span className="note-mark"><Check size={14}/></span><span>Demo environment <i/> Market prices and funding are simulated</span></div>
+					<div className="home-hero-note"><span className="note-mark"><Check size={14}/></span><span>{translate('demoEnvironment')} <i/> {translate('marketPricesAndFundingSimulated')}</span></div>
 				</div>
-				<div className="home-hero-visual"><HomeMarketPreview/><div className="hero-caption"><span>01 / MARKET VIEW</span><span>SIMULATED ENVIRONMENT</span></div></div>
-				<a className="home-scroll-cue" href="#platform"><span>SCROLL TO EXPLORE</span><ChevronDown size={15}/></a>
+				<div className="home-hero-visual"><HomeMarketPreview/><div className="hero-caption"><span>{translate('marketView')}</span><span>{translate('simulatedEnvironment')}</span></div></div>
+				<a className="home-scroll-cue" href="#platform"><span>{translate('scrollToExplore')}</span><ChevronDown size={15}/></a>
 			</section>
 
-			<section className="market-ribbon" aria-label="Market data notice"><div className="ribbon-label"><span className="source-dot"/>Demo market watch</div><HomeMarketTicker/><span className="ribbon-disclaimer">SIMULATED DATA · NOT LIVE EXCHANGE PRICES</span></section>
+			<section className="market-ribbon" aria-label={translate('marketDataNotice')}><div className="ribbon-label"><span className="source-dot"/>{translate('demoMarketWatch')}</div><HomeMarketTicker/><span className="ribbon-disclaimer">{translate('simulatedDataDisclaimer')}</span></section>
 
 			<section className="home-section platform-section" id="platform">
-				<div className="section-heading"><div><p className="eyebrow">THE AUREVIA EXPERIENCE</p><h2>Useful tools.<br/><em>Clear information.</em></h2></div><p className="section-intro">A focused environment for exploring markets and understanding your account, without promises or noise.</p></div>
+				<div className="section-heading"><div><p className="eyebrow">{translate('aureviaExperience')}</p><h2>{translate('usefulToolsClearInformation')}</h2></div><p className="section-intro">{translate('focusedEnvironment')}</p></div>
 				<div className="principle-grid">{principles.map((item,index)=>{const Icon=item.icon;return <article className="principle-item" key={item.title}><span className="principle-index">0{index+1}</span><Icon size={21} strokeWidth={1.5}/><h3>{item.title}</h3><p>{item.copy}</p></article>})}</div>
 			</section>
 
 			<section className="experience-section" id="how-it-works">
-				<div className="home-section experience-inner"><div className="section-heading"><div><p className="eyebrow">A SIMPLE ROUTE THROUGH THE PLATFORM</p><h2>Your investment<br/><em>experience.</em></h2></div><p className="section-intro">Move at your own pace. Each step makes the next account action easier to understand.</p></div>
+				<div className="home-section experience-inner"><div className="section-heading"><div><p className="eyebrow">{translate('simpleRoute')}</p><h2>{translate('yourInvestmentExperience')}</h2></div><p className="section-intro">{translate('moveAtYourOwnPace')}</p></div>
 					<ol className="experience-steps">{steps.map(([number,title,copy])=><li key={number}><span className="step-number">{number}</span><span className="step-rule"/><div><h3>{title}</h3><p>{copy}</p></div></li>)}</ol>
 				</div>
 			</section>
 
 			<section className="home-section markets-section" id="markets">
-				<div className="section-heading"><div><p className="eyebrow">MARKETS</p><h2>Explore what’s<br/><em>available.</em></h2></div><p className="section-intro">Availability reflects instruments configured in this application. The current feed is simulated, not connected to external venues.</p></div>
-				<div className="asset-grid">{assetClasses.map(item=>{const Icon=item.icon;return <article className={`asset-item ${item.available?'asset-available':'asset-coming'}`} key={item.name}><div className="asset-top"><span className="asset-icon"><Icon size={20} strokeWidth={1.6}/></span><span className="asset-state">{item.status}</span></div><h3>{item.name}</h3><p>{item.copy}</p>{item.available?<HomeAccountActions variant="market"/>:<span className="asset-link asset-link-muted">Coming soon</span>}</article>})}</div>
+				<div className="section-heading"><div><p className="eyebrow">{translate('markets')}</p><h2>{translate('exploreAvailable')}</h2></div><p className="section-intro">{translate('availabilityDescription')}</p></div>
+				<div className="asset-grid">{assetClasses.map(item=>{const Icon=item.icon;return <article className={`asset-item ${item.available?'asset-available':'asset-coming'}`} key={item.name}><div className="asset-top"><span className="asset-icon"><Icon size={20} strokeWidth={1.6}/></span><span className="asset-state">{item.status}</span></div><h3>{item.name}</h3><p>{item.copy}</p>{item.available?<HomeAccountActions variant="market"/>:<span className="asset-link asset-link-muted">{translate('comingSoon')}</span>}</article>})}</div>
 			</section>
 
 			<section className="preview-section" id="portfolio">
