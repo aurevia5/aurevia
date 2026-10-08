@@ -67,6 +67,7 @@ export type SignedProviderWebhook={
 
 export interface ExecutionProvider{
 	readonly name:string;
+	readonly executionMode:'PAPER'|'LIVE';
 	healthCheck():Promise<{connected:boolean;checkedAt:string}>;
 	submitOrder(request:ProviderOrderRequest,idempotencyKey:string):Promise<ProviderOrder>;
 	cancelOrder(providerOrderId:string,idempotencyKey:string):Promise<ProviderOrder>;
@@ -122,3 +123,36 @@ export interface FundingProvider{
 }
 
 export type ProviderConnectionState='NOT_CONFIGURED'|'CONFIGURED'|'CONNECTED'|'ERROR'|'DISABLED';
+export type AlpacaMode='PAPER'|'LIVE';
+export type AlpacaAccountSummary={
+  accountId:string;
+  status:string;
+  currency:string;
+  cash:string;
+  buyingPower:string;
+  equity:string;
+  portfolioValue:string;
+  patternDayTrader:boolean;
+  tradeSuspendedByUser:boolean;
+};
+export type AlpacaQuote={
+  symbol:string;
+  bid:number|null;
+  ask:number|null;
+  last:number|null;
+  asOf:string;
+};
+export type AlpacaOrderFill={
+  price:string;
+  quantity:string;
+  timestamp:string;
+};
+export type AlpacaOrderForm={
+  symbol:string;
+  qty:string;
+  side:'buy'|'sell';
+  type:'market'|'limit'|'stop';
+  time_in_force?:'day'|'gtc'|'ioc';
+  limit_price?:string;
+  stop_price?:string;
+};

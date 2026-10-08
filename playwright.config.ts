@@ -4,21 +4,31 @@ import {join} from 'node:path';
 import {defineConfig,devices} from '@playwright/test';
 import {loadEnvConfig} from '@next/env';
 
+const configuredE2eDatabaseUrl=process.env.AUREVIA_E2E_DATABASE_URL;
+const configuredE2eDirectUrl=process.env.AUREVIA_E2E_DIRECT_URL;
 for(const name of ['DATABASE_URL','DIRECT_URL'])delete process.env[name];
 loadEnvConfig(process.cwd(),false,undefined,true);
-function supabaseDatabaseTarget(name:string){
+if(configuredE2eDatabaseUrl)process.env.AUREVIA_E2E_DATABASE_URL=configuredE2eDatabaseUrl;
+if(configuredE2eDirectUrl)process.env.AUREVIA_E2E_DIRECT_URL=configuredE2eDirectUrl;
+function isolatedDatabaseTarget(name:string){
 	const value=process.env[name];
 	if(!value)throw new Error(`Refusing to start Playwright: ${name} is not set.`);
 	let parsed:URL;
 	try{parsed=new URL(value)}catch{throw new Error(`Refusing to start Playwright: ${name} is not a valid database URL.`)}
-	if(parsed.protocol!=='postgresql:'||!parsed.hostname.endsWith('.supabase.com')){
-		throw new Error(`Refusing to start Playwright: ${name} must target the configured Supabase project.`);
+	const localHosts=new Set(['localhost','127.0.0.1','::1']);
+	const databaseName=decodeURIComponent(parsed.pathname.replace(/^\/+/,''));
+	if(!['postgresql:','postgres:'].includes(parsed.protocol)||!localHosts.has(parsed.hostname)||!/_e2e$/i.test(databaseName)){
+		throw new Error(`Refusing to start Playwright: ${name} must target a local PostgreSQL database whose name ends in _e2e.`);
 	}
-	return `${parsed.hostname}${parsed.pathname}`;
+	return `${parsed.hostname}:${parsed.port||'5432'}/${databaseName}`;
 }
-if(supabaseDatabaseTarget('DATABASE_URL')!==supabaseDatabaseTarget('DIRECT_URL')){
-	throw new Error('Refusing to start Playwright: DATABASE_URL and DIRECT_URL must target the same Supabase project.');
+const e2eDatabaseUrl=process.env.AUREVIA_E2E_DATABASE_URL;
+const e2eDirectUrl=process.env.AUREVIA_E2E_DIRECT_URL;
+if(isolatedDatabaseTarget('AUREVIA_E2E_DATABASE_URL')!==isolatedDatabaseTarget('AUREVIA_E2E_DIRECT_URL')){
+	throw new Error('Refusing to start Playwright: AUREVIA_E2E_DATABASE_URL and AUREVIA_E2E_DIRECT_URL must target the same isolated database.');
 }
+process.env.DATABASE_URL=e2eDatabaseUrl;
+process.env.DIRECT_URL=e2eDirectUrl;
 const baseURL='http://127.0.0.1:4310';
 const providerURL='http://127.0.0.1:4311';
 const testSecret=randomBytes(32).toString('hex');

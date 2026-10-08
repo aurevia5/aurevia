@@ -25,6 +25,7 @@ export async function GET(){
 				status:execution.state,
 				enabled:execution.enabled,
 				provider:safeProviderLabel(execution.providerName),
+				providerMode:execution.providerMode,
 				adapterRegistered:execution.adapterRegistered,
 				configuredVariables:execution.configuredVariables,
 				missingConfiguration:execution.missingConfiguration,

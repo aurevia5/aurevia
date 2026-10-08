@@ -46,6 +46,15 @@ describe('canonical environment configuration',()=>{
     ]));
   });
 
+  it('rejects database URLs that target different databases',()=>{
+    const config=getServerConfiguration({
+      ...source,
+      DIRECT_URL:'postgresql://user:test@example.invalid/other-db',
+    });
+
+    expect(validateServerConfiguration(config)).toContain('DATABASE_URL and DIRECT_URL must target the same database');
+  });
+
   it('keeps public configuration limited to browser-safe values',()=>{
     vi.stubEnv('NEXT_PUBLIC_APP_URL','https://app.example.invalid');
     vi.stubEnv('NEXT_PUBLIC_SUPABASE_URL','https://project.supabase.co');
@@ -74,5 +83,21 @@ describe('canonical environment configuration',()=>{
     expect(config.execution.provider).toBeNull();
     expect(config.smtp.configured).toBe(false);
     expect(config.marketData.configured).toBe(false);
+  });
+
+  it('accepts the Individual Trading API variable names without enabling real execution by default',()=>{
+    const config=getServerConfiguration({
+      REAL_EXECUTION_ENABLED:'false',
+      ALPACA_TRADING_BASE_URL:'https://paper-api.alpaca.markets',
+      ALPACA_API_KEY:'paper-key',
+      ALPACA_API_SECRET:'paper-secret',
+      ALPACA_ACCOUNT_ID:'paper-account-id',
+    });
+
+    expect(config.execution.alpacaConfigured).toBe(true);
+    expect(config.execution.alpacaBaseUrl).toBe('https://paper-api.alpaca.markets');
+    expect(config.execution.alpacaClientId).toBe('paper-key');
+    expect(config.execution.alpacaClientSecret).toBe('paper-secret');
+    expect(config.execution.realEnabled).toBe(false);
   });
 });

@@ -74,7 +74,7 @@ The 2FA control currently stores the account-security flag. A real deployment mu
 
 ## Isolated browser tests
 
-Run `npm run test:e2e:isolated` in a Codespace with Docker available. The command starts a disposable PostgreSQL 17 container bound only to a dynamically selected loopback port, creates random local credentials in a mode-`0600` temporary file, applies Prisma migrations only to that container, and then runs Playwright. The container uses temporary storage and is removed after the run. Neither `DATABASE_URL` nor `DIRECT_URL` in `.env` is changed or used for the test database.
+Run `npm run test:e2e:isolated` with Docker available. The command starts a disposable PostgreSQL 16 container bound only to a dynamically selected loopback port, applies Prisma migrations only to that container, and removes it after the run. The container has no persistent volume; neither `DATABASE_URL` nor `DIRECT_URL` from `.env` is used for tests. `npm run test:e2e` requires explicit `AUREVIA_E2E_DATABASE_URL` and `AUREVIA_E2E_DIRECT_URL` values that point to the same local PostgreSQL database ending in `_e2e`; it refuses Supabase, Neon, and other remote hosts before fixture setup.
 
 The isolated database bootstraps only the minimal Supabase Storage tables, private bucket metadata, and database roles required by the Storage-policy migration. The Playwright application process has Supabase URL/key configuration cleared, so file workflows fail closed and cannot access the shared Storage service. `npm run test:e2e` by itself continues to reject non-local or mismatched database URLs.
 

@@ -13,7 +13,14 @@ export function registerExecutionProvider(provider:ExecutionProvider){
 
 export async function getExecutionProviderStatus(){
 	const config=getServerConfiguration().execution;
+	const providerMode=executionProvider?.executionMode??null;
 	const configuredVariables={
+		REAL_EXECUTION_ENABLED:Boolean(config.realEnabled),
+		ALPACA_TRADING_BASE_URL:Boolean(config.alpacaBaseUrl),
+		ALPACA_API_KEY:Boolean(config.alpacaClientId),
+		ALPACA_API_SECRET:Boolean(config.alpacaClientSecret),
+		ALPACA_ACCOUNT_ID:Boolean(config.brokerAccountId),
+		ALPACA_WEBHOOK_SECRET:Boolean(config.brokerWebhookSecret),
 		BROKER_PROVIDER:Boolean(config.provider),
 		BROKER_API_URL:Boolean(config.brokerApiUrl),
 		BROKER_API_KEY:Boolean(config.brokerApiKey),
@@ -28,6 +35,7 @@ export async function getExecutionProviderStatus(){
 	if(config.realEnabled){
 		if(missingConfiguration.length)state='NOT_CONFIGURED';
 		else if(!executionProvider)state='CONFIGURED';
+		else if(providerMode!=='LIVE')state='DISABLED';
 		else{
 			try{state=(await executionProvider.healthCheck()).connected?'CONNECTED':'ERROR'}
 			catch{state='ERROR'}
@@ -35,8 +43,9 @@ export async function getExecutionProviderStatus(){
 	}
 	return {
 		state,
-		enabled:config.realEnabled,
+		enabled:config.realEnabled&&state==='CONNECTED'&&providerMode==='LIVE',
 		providerName:config.provider,
+		providerMode,
 		adapterRegistered:!!executionProvider,
 		configuredVariables,
 		missingConfiguration,

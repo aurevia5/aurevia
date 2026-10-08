@@ -1,20 +1,12 @@
 import nextEnv from '@next/env';
 import {spawn} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 
 const {loadEnvConfig}=nextEnv;
 const port=4310;
 const projectRoot=process.cwd();
 for(const name of ['DATABASE_URL','DIRECT_URL'])delete process.env[name];
 loadEnvConfig(projectRoot,false,undefined,true);
-
-function databaseTarget(name){
-	const value=process.env[name];
-	if(!value)throw new Error(`${name} is not set.`);
-	const parsed=new URL(value);
-	if(!parsed.hostname.endsWith('.supabase.com'))throw new Error(`${name} must target the configured Supabase project.`);
-	return `${parsed.hostname}${parsed.pathname}`;
-}
-if(databaseTarget('DATABASE_URL')!==databaseTarget('DIRECT_URL'))throw new Error('DATABASE_URL and DIRECT_URL must target the same Supabase project.');
 
 function run(command,args,options={}){
 	return new Promise((resolve,reject)=>{
@@ -24,8 +16,54 @@ function run(command,args,options={}){
 	});
 }
 
-const environment={...process.env,PORT:String(port),NODE_ENV:'production'};
-console.log('Verified project environment files and Supabase database target.');
-console.log('Running the complete existing Playwright suite.');
-const exitCode=await run('npm',['run','test:e2e','--',...process.argv.slice(2)],{env:environment});
+function capture(command,args,{input}={}){
+	return new Promise((resolve,reject)=>{
+		const child=spawn(command,args,{cwd:projectRoot,stdio:['pipe','pipe','pipe']});
+		let stdout='';
+		let stderr='';
+		child.stdout.setEncoding('utf8').on('data',chunk=>stdout+=chunk);
+		child.stderr.setEncoding('utf8').on('data',chunk=>stderr+=chunk);
+		if(input)child.stdin.end(input);else child.stdin.end();
+		child.on('error',reject);
+		child.on('exit',code=>resolve({code,stdout:stdout.trim(),stderr:stderr.trim()}));
+	});
+}
+
+const containerName=`aurevia-e2e-${randomUUID()}`;
+const databaseName='aurevia_e2e';
+const databaseUser='aurevia_e2e';
+let containerStarted=false;
+let exitCode=1;
+
+try{
+	const started=await capture('docker',['run','--detach','--rm','--name',containerName,'--publish','127.0.0.1::5432','--env',`POSTGRES_DB=${databaseName}`,'--env',`POSTGRES_USER=${databaseUser}`,'--env','POSTGRES_HOST_AUTH_METHOD=trust','postgres:16-alpine']);
+	if(started.code!==0)throw new Error(`Unable to start the isolated PostgreSQL container: ${started.stderr.slice(0,500)}`);
+	containerStarted=true;
+	const published=await capture('docker',['port',containerName,'5432/tcp']);
+	const portMatch=/^127\.0\.0\.1:(\d+)$/.exec(published.stdout);
+	if(published.code!==0||!portMatch)throw new Error('Unable to confirm the loopback-only PostgreSQL port.');
+	const databaseUrl=`postgresql://${databaseUser}@127.0.0.1:${portMatch[1]}/${databaseName}?schema=public`;
+	const environment={...process.env,DATABASE_URL:databaseUrl,DIRECT_URL:databaseUrl,AUREVIA_E2E_DATABASE_URL:databaseUrl,AUREVIA_E2E_DIRECT_URL:databaseUrl,PORT:String(port),NODE_ENV:'production'};
+	let ready=false;
+	for(let attempt=0;attempt<60;attempt++){
+		const check=await capture('docker',['exec',containerName,'pg_isready','-U',databaseUser,'-d',databaseName]);
+		if(check.code===0){ready=true;break;}
+		await new Promise(resolve=>setTimeout(resolve,1000));
+	}
+	if(!ready)throw new Error('The isolated PostgreSQL container did not become ready.');
+	const storageBootstrap=`CREATE ROLE postgres SUPERUSER LOGIN;\nDO $$ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\nDO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\nCREATE SCHEMA storage;\nCREATE TABLE storage.buckets (id text PRIMARY KEY, public boolean NOT NULL DEFAULT false, file_size_limit bigint);\nCREATE TABLE storage.objects (id bigserial PRIMARY KEY, bucket_id text NOT NULL REFERENCES storage.buckets(id), name text NOT NULL, UNIQUE(bucket_id,name));\nINSERT INTO storage.buckets (id,public,file_size_limit) VALUES ('kyc-documents',false,10485760),('profile-avatars',false,5242880),('wallet-receipts',false,10485760),('support-attachments',false,10485760);\n`;
+	const bootstrapped=await capture('docker',['exec','-i',containerName,'psql','-v','ON_ERROR_STOP=1','-U',databaseUser,'-d',databaseName],{input:storageBootstrap});
+	if(bootstrapped.code!==0)throw new Error(`Unable to initialize isolated Storage policy prerequisites: ${bootstrapped.stderr.slice(0,500)}`);
+	const migrated=await run('npx',['prisma','migrate','deploy'],{env:environment});
+	if(migrated!==0)throw new Error('Prisma migrations failed on the isolated E2E database.');
+	console.log('Running Playwright against a disposable loopback-only PostgreSQL database.');
+	exitCode=await run('npm',['run','test:e2e','--',...process.argv.slice(2)],{env:environment});
+}catch(error){
+	console.error(error instanceof Error?error.message:'Isolated E2E setup failed.');
+}finally{
+	if(containerStarted){
+		const removed=await capture('docker',['rm','--force',containerName]);
+		if(removed.code!==0){console.error('Unable to remove the isolated E2E PostgreSQL container.');exitCode=1;}
+	}
+}
 process.exitCode=exitCode??1;

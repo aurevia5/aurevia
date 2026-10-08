@@ -3,12 +3,12 @@ import {createServer} from 'http';
 import {Server as IOServer} from 'socket.io';
 import {loadEnvConfig} from '@next/env';
 import {tickMarkets} from './lib/market';
-import {createAlpacaCryptoProviderFromEnvironment} from './lib/providers/alpaca-crypto-provider';
+import {createIndividualTradingApiProviderFromEnvironment} from './lib/providers/alpaca-crypto-provider';
 import {registerExecutionProvider} from './lib/providers/registry';
 
 loadEnvConfig(process.cwd());
-const cryptoProvider=createAlpacaCryptoProviderFromEnvironment();
-if(cryptoProvider)registerExecutionProvider(cryptoProvider);
+const tradingProvider=createIndividualTradingApiProviderFromEnvironment();
+if(tradingProvider)registerExecutionProvider(tradingProvider);
 
 const dev=process.env.NODE_ENV!=='production';
 const port=Number(process.env.PORT||3000);

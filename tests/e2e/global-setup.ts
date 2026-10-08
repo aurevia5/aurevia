@@ -8,16 +8,25 @@ import bcrypt from 'bcryptjs';
 import {initializeDemoAccount} from '../../lib/ledger';
 
 export default async function globalSetup(){
+	const configuredE2eDatabaseUrl=process.env.AUREVIA_E2E_DATABASE_URL;
+	const configuredE2eDirectUrl=process.env.AUREVIA_E2E_DIRECT_URL;
 	loadEnvConfig(process.cwd(),false,undefined,true);
-	const databaseUrl=process.env.DATABASE_URL;
-	const directUrl=process.env.DIRECT_URL;
-	if(!databaseUrl||!directUrl)throw new Error('Playwright E2E requires DATABASE_URL and DIRECT_URL.');
-	const databaseTarget=new URL(databaseUrl);
-	const directTarget=new URL(directUrl);
-	if(!databaseTarget.hostname.endsWith('.supabase.com')||!directTarget.hostname.endsWith('.supabase.com'))throw new Error('Refusing to create Playwright fixtures outside the configured Supabase project.');
-	if(databaseTarget.hostname!==directTarget.hostname||databaseTarget.pathname!==directTarget.pathname)throw new Error('Refusing to create Playwright fixtures when DATABASE_URL and DIRECT_URL target different databases.');
+	if(configuredE2eDatabaseUrl)process.env.AUREVIA_E2E_DATABASE_URL=configuredE2eDatabaseUrl;
+	if(configuredE2eDirectUrl)process.env.AUREVIA_E2E_DIRECT_URL=configuredE2eDirectUrl;
+	const databaseUrl=process.env.AUREVIA_E2E_DATABASE_URL;
+	const directUrl=process.env.AUREVIA_E2E_DIRECT_URL;
+	const localHosts=new Set(['localhost','127.0.0.1','::1']);
+	function target(value:string|undefined,name:string){
+		if(!value)throw new Error(`Refusing to create Playwright fixtures: ${name} is not set.`);
+		let parsed:URL;
+		try{parsed=new URL(value)}catch{throw new Error(`Refusing to create Playwright fixtures: ${name} is invalid.`)}
+		const databaseName=decodeURIComponent(parsed.pathname.replace(/^\/+/,''));
+		if(!['postgresql:','postgres:'].includes(parsed.protocol)||!localHosts.has(parsed.hostname)||!/_e2e$/i.test(databaseName))throw new Error(`Refusing to create Playwright fixtures: ${name} must target a local PostgreSQL database whose name ends in _e2e.`);
+		return `${parsed.hostname}:${parsed.port||'5432'}/${databaseName}`;
+	}
+	if(target(databaseUrl,'AUREVIA_E2E_DATABASE_URL')!==target(directUrl,'AUREVIA_E2E_DIRECT_URL'))throw new Error('Refusing to create Playwright fixtures when E2E database URLs target different databases.');
 
-	const db=new PrismaClient();
+	const db=new PrismaClient({datasourceUrl:databaseUrl});
 	const runId=randomUUID();
 	const userId=`e2e-user-${runId}`;
 	const adminId=`e2e-admin-${runId}`;

@@ -107,8 +107,11 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
   const smtpConfigured = Boolean(env('SMTP_HOST', source) && env('SMTP_USER', source) && env('SMTP_PASSWORD', source) && env('SMTP_FROM', source)) && Number.isInteger(smtpPort) && smtpPort > 0 && smtpPort <= 65535;
   const verificationEmailConfigured = Boolean(env('VERIFICATION_EMAIL_API_URL', source) && env('VERIFICATION_EMAIL_API_KEY', source));
   const verificationSmsConfigured = Boolean(env('VERIFICATION_SMS_API_URL', source) && env('VERIFICATION_SMS_API_KEY', source));
-  const executionProvider = env('BROKER_PROVIDER', source);
-  const alpacaConfigured = Boolean(env('ALPACA_BROKER_BASE_URL', source) && env('ALPACA_BROKER_CLIENT_ID', source) && env('ALPACA_BROKER_CLIENT_SECRET', source));
+  const executionProvider = env('BROKER_PROVIDER', source) || env('ALPACA_PROVIDER', source) || null;
+  const alpacaBaseUrl = env('ALPACA_TRADING_BASE_URL', source) || env('ALPACA_BROKER_BASE_URL', source);
+  const alpacaClientId = env('ALPACA_API_KEY', source) || env('ALPACA_BROKER_CLIENT_ID', source);
+  const alpacaClientSecret = env('ALPACA_API_SECRET', source) || env('ALPACA_BROKER_CLIENT_SECRET', source);
+  const alpacaConfigured = Boolean(alpacaBaseUrl && alpacaClientId && alpacaClientSecret);
   const paymentConfigured = Boolean(env('PAYMENT_PROVIDER', source) && env('PAYMENT_API_URL', source) && env('PAYMENT_API_KEY', source));
   const marketDataConfigured = Boolean(env('MARKET_DATA_API_URL', source));
 
@@ -161,11 +164,11 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
       provider: executionProvider || null,
       brokerApiUrl: env('BROKER_API_URL', source),
       brokerApiKey: env('BROKER_API_KEY', source),
-      brokerAccountId: env('BROKER_ACCOUNT_ID', source),
+      brokerAccountId: env('BROKER_ACCOUNT_ID', source) || env('ALPACA_ACCOUNT_ID', source),
       brokerWebhookSecret: env('BROKER_WEBHOOK_SECRET', source),
-      alpacaBaseUrl: env('ALPACA_BROKER_BASE_URL', source),
-      alpacaClientId: env('ALPACA_BROKER_CLIENT_ID', source),
-      alpacaClientSecret: env('ALPACA_BROKER_CLIENT_SECRET', source),
+      alpacaBaseUrl,
+      alpacaClientId,
+      alpacaClientSecret,
       alpacaConfigured,
     },
     payment: {
@@ -197,7 +200,9 @@ export function validateServerConfiguration(config: ServerConfiguration): string
   else if(!/^postgres(?:ql)?:\/\//i.test(config.database.url)) issues.push('DATABASE_URL must be a valid PostgreSQL URL');
   if(!config.database.directUrl) issues.push('DIRECT_URL is missing');
   else if(!/^postgres(?:ql)?:\/\//i.test(config.database.directUrl)) issues.push('DIRECT_URL must be a valid PostgreSQL URL');
-  if(config.database.target && config.database.url && config.database.directUrl && config.database.target !== config.database.target) issues.push('DATABASE_URL and DIRECT_URL must target the same database');
+  const databaseTarget = getDatabaseTarget(config.database.url);
+  const directTarget = getDatabaseTarget(config.database.directUrl);
+  if(databaseTarget && directTarget && databaseTarget !== directTarget) issues.push('DATABASE_URL and DIRECT_URL must target the same database');
   if(!config.auth.secret) issues.push('NEXTAUTH_SECRET is missing');
   if(!config.auth.url) issues.push('NEXTAUTH_URL is missing');
   else try {
@@ -206,7 +211,7 @@ export function validateServerConfiguration(config: ServerConfiguration): string
   } catch {
     issues.push('NEXTAUTH_URL must be a valid absolute HTTPS URL');
   }
-  if(config.execution.realEnabled && !config.execution.alpacaConfigured) issues.push('REAL_EXECUTION_ENABLED requires a complete Alpaca adapter configuration');
+  if(config.execution.realEnabled && !config.execution.alpacaConfigured) issues.push('REAL_EXECUTION_ENABLED requires a complete Individual Alpaca Trading API configuration');
   return issues;
 }
 
