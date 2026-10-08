@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import Nav from "@/components/Nav";
+import { useLocale } from "@/lib/i18n-context";
 import LiveMarketPreview from "@/components/LiveMarketPreview";
 import { io } from "socket.io-client";
 import PriceChart from "@/components/PriceChart";
@@ -29,6 +30,7 @@ type Pos = {
   instrument: { symbol: string; price: number };
 };
 export default function Trade() {
+  const { translate } = useLocale();
   const {data:session,status:sessionStatus}=useSession();
   const [items, setItems] = useState<I[]>([]);
   const updateStore = useTradingStore((s) => s.updatePrices);
@@ -143,7 +145,7 @@ export default function Trade() {
 
   async function place(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if(accountMode!=='DEMO'){setMsg('Real-account trading is unavailable because no external execution provider is connected.');return;}
+    if(accountMode!=='DEMO'){setMsg(translate('realTradingUnavailable'));return;}
     if (placing) return;
     setPlacing(true);
     setMsg("");
@@ -201,11 +203,11 @@ export default function Trade() {
     <>
       <Nav />
       <main className="trade-terminal">
-        <header className="account-heading"><div><span className="account-kicker">{accountMode==='LOADING'?'Restoring account mode':`${accountMode} ACCOUNT · Trading workspace`}</span><h1>Trade markets</h1><p>{accountMode==='REAL'?'Your REAL account remains active. Read-only external market data is available; order execution is not connected.':'Practice with simulated prices and executions. DEMO activity never affects REAL account balances.'}</p></div><span className={`status-pill ${accountMode==='REAL'?'mode-real':'mode-demo'}`}>{accountMode==='LOADING'?'RESTORING':accountMode==='REAL'?'REAL · ACTIVE':'DEMO · SIMULATED'}</span></header>
-        {accountMode==='REAL'?<div className="real-trade-view"><div className="account-callout"><span>REAL account status is active. Aurevia has no connected broker execution provider; no REAL order will be simulated or submitted from this page.</span></div><section className="account-panel card p-5"><LiveMarketPreview/></section><section className="account-panel card p-5"><div className="account-panel-title"><div><h2>REAL execution status</h2><p className="account-panel-subtitle">Your recorded REAL ledger and funding activity remain available in Wallet. External positions are not connected.</p></div><span className="status-pill mode-real">ACTIVE · READ ONLY</span></div><Link className="text-link" href="/markets">Open live charts <ArrowUpRight size={14}/></Link><Link className="text-link ml-4" href="/wallet">Open REAL wallet <ArrowUpRight size={14}/></Link></section></div>:accountMode==='DEMO'?<>
+        <header className="account-heading"><div><span className="account-kicker">{accountMode==='LOADING'?translate('restoringAccountMode'):`${accountMode} ACCOUNT · ${translate('tradingWorkspace')}`}</span><h1>{translate('tradeMarkets')}</h1><p>{accountMode==='REAL'?translate('realAccountTradingDescription'):translate('tradeMarketsDescription')}</p></div><span className={`status-pill ${accountMode==='REAL'?'mode-real':'mode-demo'}`}>{accountMode==='LOADING'?'RESTORING':accountMode==='REAL'?'REAL · ACTIVE':'DEMO · SIMULATED'}</span></header>
+        {accountMode==='REAL'?<div className="real-trade-view"><div className="account-callout"><span>{translate('realTradingNotice')}</span></div><section className="account-panel card p-5"><LiveMarketPreview/></section><section className="account-panel card p-5"><div className="account-panel-title"><div><h2>{translate('realExecutionStatus')}</h2><p className="account-panel-subtitle">{translate('realLedgerDescription')}</p></div><span className="status-pill mode-real">{translate('activeReadOnly')}</span></div><Link className="text-link" href="/markets">{translate('openLiveCharts')} <ArrowUpRight size={14}/></Link><Link className="text-link ml-4" href="/wallet">{translate('openRealWallet')} <ArrowUpRight size={14}/></Link></section></div>:accountMode==='DEMO'?<>
         <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
           <section className="card min-h-[650px] p-5">
-            <div className="trade-market-select" role="group" aria-label="Select an instrument">
+            <div className="trade-market-select" role="group" aria-label={translate('selectAnInstrument')}>
               {items.map((i) => (
                 <button
                   type="button"
@@ -223,8 +225,8 @@ export default function Trade() {
             </div>
             <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_220px]">
               <div className="trade-chart-panel">
-                <div className="trade-chart-header"><div><span className="account-kicker">{cur?.symbol||"Select an instrument"}</span><p className="trade-last-price">{cur?.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:cur.price<10?4:2})||"—"}</p></div><span className="status-pill">Demo price</span></div>
-                <div className="sr-only">Current simulated price chart</div>
+                <div className="trade-chart-header"><div><span className="account-kicker">{cur?.symbol||translate('selectAnInstrument')}</span><p className="trade-last-price">{cur?.price.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:cur.price<10?4:2})||"—"}</p></div><span className="status-pill">{translate('simulatedPrice')}</span></div>
+                <div className="sr-only">{translate('currentSimulatedPriceChart')}</div>
                 <div className="hidden">
                   <div className="mb-2 text-4xl font-black">
                   {cur?.price.toLocaleString(undefined, {
@@ -233,10 +235,10 @@ export default function Trade() {
                   </div>
                 </div>
                 <PriceChart price={cur?.price ?? 0} />
-                <p className="trade-chart-note">Internal simulated market · prices update from the application demo feed.</p>
+                <p className="trade-chart-note">{translate('internalSimulatedMarket')}</p>
               </div>
               <div className="trade-orderbook">
-                <h3 className="font-bold">Order book <small>DEMO FEED ONLY</small></h3>
+                <h3 className="font-bold">{translate('orderBook')} <small>{translate('demoFeedOnly')}</small></h3>
                 <div className="mt-3 text-xs">
                   {book.asks
                     ?.slice()
@@ -265,29 +267,29 @@ export default function Trade() {
             </div>
           </section>
           <section className="card p-5">
-            <div className="account-panel-title"><div><h2>Order ticket</h2><p className="account-panel-subtitle">Review the simulated DEMO order estimate before submitting.</p></div><span className="status-pill mode-demo">DEMO</span></div>
+            <div className="account-panel-title"><div><h2>{translate('orderTicket')}</h2><p className="account-panel-subtitle">{translate('reviewDemoEstimate')}</p></div><span className="status-pill mode-demo">{translate('demo')}</span></div>
             <form onSubmit={place} className="space-y-3">
               <fieldset disabled={accountMode!=='DEMO'} className="space-y-3">
-              <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order side">
+              <div className="grid grid-cols-2 gap-2" role="group" aria-label={translate('orderSide')}>
               <button type="button" aria-pressed={side === "BUY"}
                 onClick={() => setSide("BUY")}
                 className={`btn ${side === "BUY" ? "bg-profit text-black" : "bg-white/5"}`}
               >
-                Buy
+                {translate('buy')}
               </button>
               <button type="button" aria-pressed={side === "SELL"}
                 onClick={() => setSide("SELL")}
                 className={`btn ${side === "SELL" ? "bg-loss text-white" : "bg-white/5"}`}
               >
-                Sell
+                {translate('sell')}
               </button>
             </div>
-              <label className="account-label">Order type<select className="input" required value={type} onChange={(event) => setType(event.target.value as "MARKET"|"LIMIT"|"STOP")}><option value="MARKET">Market</option><option value="LIMIT">Limit</option><option value="STOP">Stop</option></select></label>
-              <label className="account-label">Quantity<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={qty} onChange={(event) => setQty(event.target.value)} placeholder="0.00"/></label>
-              {type !== "MARKET" && <label className="account-label">{type === "STOP" ? "Stop price" : "Limit price"}<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00"/></label>}
-              <div className="trade-estimate" aria-live="polite"><div><span>Available DEMO cash</span><b>{availableBalance===null?"Loading…":`$${availableBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}</b></div><div><span>Estimated required cash</span><b>{cur?`$${estimatedRequiredCash.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</b></div><div><span>Estimated fee</span><b>{cur?.takerFee===undefined?"Not configured":`$${estimatedFee.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4})}`}</b></div></div>
-              <p className="trade-estimate-note">DEMO spot orders use full notional plus fees. Prices and execution are simulated; the server revalidates balance, ownership, and quote freshness.</p>
-              <button type="submit" disabled={placing||!selected} className="btn w-full bg-gold text-black disabled:opacity-50">{placing?"Submitting…":`Place ${side} order`}</button>
+              <label className="account-label">{translate('orderType')}<select className="input" required value={type} onChange={(event) => setType(event.target.value as "MARKET"|"LIMIT"|"STOP")}><option value="MARKET">Market</option><option value="LIMIT">Limit</option><option value="STOP">Stop</option></select></label>
+              <label className="account-label">{translate('quantity')}<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={qty} onChange={(event) => setQty(event.target.value)} placeholder="0.00"/></label>
+              {type !== "MARKET" && <label className="account-label">{type === "STOP" ? translate('stopPrice') : translate('limitPrice')}<input className="input" type="number" min="0.00000001" step="any" inputMode="decimal" required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00"/></label>}
+              <div className="trade-estimate" aria-live="polite"><div><span>{translate('availableDemoCash')}</span><b>{availableBalance===null?"Loading…":`$${availableBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`}</b></div><div><span>{translate('estimatedRequiredCash')}</span><b>{cur?`$${estimatedRequiredCash.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`:"—"}</b></div><div><span>{translate('estimatedFee')}</span><b>{cur?.takerFee===undefined?"Not configured":`$${estimatedFee.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4})}`}</b></div></div>
+              <p className="trade-estimate-note">{translate('demoSpotOrders')}</p>
+              <button type="submit" disabled={placing||!selected} className="btn w-full bg-gold text-black disabled:opacity-50">{placing?translate('submittingOrder'):translate('placeOrder',{side})}</button>
               </fieldset>
               {msg&&<p className="text-sm muted" role="status">{msg}</p>}
             </form>
@@ -305,18 +307,18 @@ export default function Trade() {
                         {o.instrument.symbol} {o.side} {o.type}
                       </span>
                       <button type="button" onClick={() => cancel(o.id)} className="gold">
-                        Cancel
+                        {translate('cancel')}
                       </button>
                     </div>
                   ))
               ) : (
-                <p className="mt-2 muted text-sm">No open orders.</p>
+                <p className="mt-2 muted text-sm">{translate('noOpenOrders')}</p>
               )}
             </div>
           </section>
         </div>
         <section className="card mt-4 p-5">
-          <div className="account-panel-title"><div><h2>Open positions</h2><p className="account-panel-subtitle">Unrealized P&amp;L uses the current simulated price.</p></div><span className="status-pill">{positions.length} open</span></div>
+          <div className="account-panel-title"><div><h2>{translate('openPositions')}</h2><p className="account-panel-subtitle">{translate('unrealizedPnl')}</p></div><span className="status-pill">{positions.length} open</span></div>
           {positions.length ? (
             <div className="mt-3 space-y-2">
               {positions.map((p) => (
@@ -331,19 +333,19 @@ export default function Trade() {
                     {pnl(p) >= 0 ? "+" : ""}${pnl(p).toFixed(2)}
                   </span>
                   <button type="button" className="btn bg-loss" onClick={() => close(p.id)}>
-                    Close
+                    {translate('close')}
                   </button>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="mt-3 muted">No open positions.</p>
+            <p className="mt-3 muted">{translate('noOpenPositions')}</p>
           )}
         </section>
-        <section className="account-panel card mt-4 p-5"><div className="account-panel-title"><div><h2>Order history</h2><p className="account-panel-subtitle">Recent submitted orders and recorded status.</p></div><RefreshCw size={17} className="gold" aria-hidden="true"/></div>
-          {orders.length?<div className="account-table-wrap"><table className="account-table"><thead><tr><th>Instrument</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit / stop</th><th>Status</th></tr></thead><tbody>{orders.slice(0,20).map(order=><tr key={order.id}><td>{order.instrument.symbol}</td><td>{order.side}</td><td>{order.type}</td><td>{Number(order.quantity).toLocaleString()}</td><td>{order.type==='LIMIT'?Number(order.price||0).toLocaleString(undefined,{maximumFractionDigits:6}):order.type==='STOP'?Number(order.stopPrice||0).toLocaleString(undefined,{maximumFractionDigits:6}):'Market'}</td><td><span className="status-pill">{order.status.replaceAll('_',' ')}</span></td></tr>)}</tbody></table></div>:<div className="account-empty">No submitted orders yet.</div>}
+        <section className="account-panel card mt-4 p-5"><div className="account-panel-title"><div><h2>{translate('orderHistory')}</h2><p className="account-panel-subtitle">{translate('recentSubmittedOrders')}</p></div><RefreshCw size={17} className="gold" aria-hidden="true"/></div>
+          {orders.length?<div className="account-table-wrap"><table className="account-table"><thead><tr><th>Instrument</th><th>Side</th><th>Type</th><th>Quantity</th><th>Limit / stop</th><th>Status</th></tr></thead><tbody>{orders.slice(0,20).map(order=><tr key={order.id}><td>{order.instrument.symbol}</td><td>{order.side}</td><td>{order.type}</td><td>{Number(order.quantity).toLocaleString()}</td><td>{order.type==='LIMIT'?Number(order.price||0).toLocaleString(undefined,{maximumFractionDigits:6}):order.type==='STOP'?Number(order.stopPrice||0).toLocaleString(undefined,{maximumFractionDigits:6}):translate('market')}</td><td><span className="status-pill">{order.status.replaceAll('_',' ')}</span></td></tr>)}</tbody></table></div>:<div className="account-empty">{translate('noOrdersRecorded')}</div>}
         </section>
-        </>:<div className="account-empty" role="status">Restoring account session…</div>}
+        </>:<div className="account-empty" role="status">{translate('restoringAccountSession')}</div>}
       </main>
     </>
   );

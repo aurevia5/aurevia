@@ -4,6 +4,7 @@ import {useCallback,useEffect,useRef,useState} from 'react';
 import {useSession} from 'next-auth/react';
 import {useRouter} from 'next/navigation';
 import {Activity,Bell,Check,CheckCheck,ChevronRight,CircleDollarSign,Info,LifeBuoy,RefreshCw,ShieldCheck,UserRound,WalletCards} from 'lucide-react';
+import {useLocale} from '@/lib/i18n-context';
 
 type NotificationItem={id:string;type:string;title:string;message:string;isRead:boolean;createdAt:string;actionUrl:string|null};
 type NotificationResponse={notifications:NotificationItem[];unreadCount:number};
@@ -13,6 +14,7 @@ const iconByType:Record<string,typeof Bell>={ACCOUNT:UserRound,SECURITY:ShieldCh
 export default function NotificationBell(){
 	const {status}=useSession();
 	const router=useRouter();
+	const {translate}=useLocale();
 	const panelRef=useRef<HTMLDivElement>(null);
 	const [open,setOpen]=useState(false);
 	const [notifications,setNotifications]=useState<NotificationItem[]>([]);
@@ -75,14 +77,14 @@ export default function NotificationBell(){
 
 	if(status!=='authenticated')return null;
 	return <div className="notification-bell" ref={panelRef}>
-		<button type="button" className="notification-bell-button" aria-label={`Notifications${unreadCount?`, ${unreadCount} unread`:''}`} aria-expanded={open} aria-haspopup="dialog" onClick={()=>{setOpen(value=>!value);void load(true)}}>
+		<button type="button" className="notification-bell-button" aria-label={translate('notifications')+(unreadCount?` · ${translate('unreadCount',{count:unreadCount})}`:'')} aria-expanded={open} aria-haspopup="dialog" onClick={()=>{setOpen(value=>!value);void load(true)}}>
 			<Bell size={17} aria-hidden="true"/>{unreadCount>0&&<span className="notification-count">{unreadCount>99?'99+':unreadCount}</span>}
 		</button>
-		{open&&<section className="notification-popover" role="dialog" aria-label="Notifications">
-			<header><div><b>Notifications</b><small>{unreadCount?`${unreadCount} unread`:'Recent account activity'}</small></div><div className="notification-popover-actions"><button type="button" aria-label="Mark all notifications as read" title="Mark all as read" disabled={busy||!unreadCount} onClick={()=>void markAllRead()}><CheckCheck size={15}/></button><button type="button" aria-label="Close notifications" className="notification-close" onClick={()=>setOpen(false)}>×</button></div></header>
-			{error&&<p className="notification-error" role="alert">{error}<button type="button" onClick={()=>void load(true)} aria-label="Retry notification loading"><RefreshCw size={13}/></button></p>}
-			<div className="notification-popover-list">{loading?<p className="notification-state" role="status">Loading notifications…</p>:notifications.length?notifications.map(item=>{const Icon=iconByType[item.type]||Info;return <button className={`notification-row ${item.isRead?'is-read':'is-unread'}`} type="button" key={item.id} onClick={()=>void markRead(item)} disabled={busy}><span className={`notification-icon notification-type-${item.type.toLowerCase()}`}><Icon size={15}/></span><span className="notification-copy"><b>{item.title}</b><span>{item.message}</span><time dateTime={item.createdAt}>{relativeTime(item.createdAt)}</time></span>{item.actionUrl&&<ChevronRight size={14} className="notification-chevron"/>}</button>}):<p className="notification-empty">No notifications yet.</p>}</div>
-			<footer><button type="button" className="notification-history-link" onClick={()=>{setOpen(false);router.push('/notifications')}}>View notification history <ChevronRight size={14}/></button></footer>
+		{open&&<section className="notification-popover" role="dialog" aria-label={translate('notifications')}>
+			<header><div><b>{translate('notifications')}</b><small>{unreadCount?translate('unreadCount',{count:unreadCount}):translate('recentAccountActivity')}</small></div><div className="notification-popover-actions"><button type="button" aria-label={translate('markAllNotificationsRead')} title={translate('markAllRead')} disabled={busy||!unreadCount} onClick={()=>void markAllRead()}><CheckCheck size={15}/></button><button type="button" aria-label={translate('closeNotifications')} className="notification-close" onClick={()=>setOpen(false)}>×</button></div></header>
+			{error&&<p className="notification-error" role="alert">{error}<button type="button" onClick={()=>void load(true)} aria-label={translate('retry')}><RefreshCw size={13}/></button></p>}
+			<div className="notification-popover-list">{loading?<p className="notification-state" role="status">{translate('notificationLoading')}</p>:notifications.length?notifications.map(item=>{const Icon=iconByType[item.type]||Info;return <button className={`notification-row ${item.isRead?'is-read':'is-unread'}`} type="button" key={item.id} onClick={()=>void markRead(item)} disabled={busy}><span className={`notification-icon notification-type-${item.type.toLowerCase()}`}><Icon size={15}/></span><span className="notification-copy"><b>{item.title}</b><span>{item.message}</span><time dateTime={item.createdAt}>{relativeTime(item.createdAt)}</time></span>{item.actionUrl&&<ChevronRight size={14} className="notification-chevron"/>}</button>}):<p className="notification-empty">{translate('noNotificationsAvailable')}</p>}</div>
+			<footer><button type="button" className="notification-history-link" onClick={()=>{setOpen(false);router.push('/notifications')}}>{translate('viewNotificationHistory')} <ChevronRight size={14}/></button></footer>
 		</section>}
 	</div>;
 }

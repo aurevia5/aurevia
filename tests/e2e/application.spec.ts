@@ -58,6 +58,40 @@ test('mobile navigation opens and navigates to Login',async({page})=>{
 	await expectNoHorizontalOverflow(page);
 });
 
+test('language selection persists Arabic RTL direction and remains responsive',async({page})=>{
+	await page.setViewportSize({width:390,height:844});
+	await page.goto('/');
+	const languageTrigger=page.getByRole('button',{name:/Select language:/});
+	await languageTrigger.click();
+	await page.getByRole('menuitemradio',{name:/العربية/}).click();
+	await expect(page.locator('html')).toHaveAttribute('lang','ar');
+	await expect(page.locator('html')).toHaveAttribute('dir','rtl');
+	await expect.poll(()=>page.evaluate(()=>localStorage.getItem('aurevia-locale'))).toBe('ar');
+	await page.reload();
+	await expect(page.locator('html')).toHaveAttribute('lang','ar');
+	await expect(page.locator('html')).toHaveAttribute('dir','rtl');
+	await expectNoHorizontalOverflow(page);
+});
+
+test('language selector supports keyboard navigation, outside dismissal, and focus restoration',async({page})=>{
+	await page.setViewportSize({width:320,height:800});
+	await page.goto('/');
+	const trigger=page.getByRole('button',{name:/Select language:/});
+	await trigger.focus();
+	await page.keyboard.press('ArrowDown');
+	const menu=page.getByRole('menu',{name:/Languages/});
+	await expect(menu).toBeVisible();
+	await expect(menu.getByRole('menuitemradio').first()).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(menu).toBeHidden();
+	await expect(trigger).toBeFocused();
+	await trigger.click();
+	await page.locator('body').click({position:{x:5,y:5}});
+	await expect(menu).toBeHidden();
+	await expect(trigger).toBeFocused();
+	await expectNoHorizontalOverflow(page);
+});
+
 test('startup waits for session initialization, then stays dismissed across navigation and refresh',async({page})=>{
 	await page.emulateMedia({reducedMotion:'reduce'});
 	let releaseSession!:()=>void;
@@ -111,7 +145,7 @@ test('market refresh runs in place without reloading the page',async({page})=>{
 test('country selector searches Nigeria and United Kingdom and shows their dialing codes',async({page})=>{
 	await page.setViewportSize({width:320,height:800});
 	await page.goto('/register');
-	const picker=page.getByRole('button',{name:/phone country and dialing code/});
+	const picker=page.getByRole('button',{name:/phone country and dialing code/i});
 	await expect(picker).toHaveAttribute('aria-label',/United States \+1/);
 	await picker.click();
 	const dialog=page.getByRole('dialog',{name:'Select phone country and dialing code'});
@@ -180,12 +214,12 @@ test('registration selects account mode, verifies through delivery, then login p
 	await page.getByLabel('First name').fill('Temporary');
 	await page.getByLabel('Last name').fill('Browser Test');
 	await page.getByLabel('Date of birth').fill('2000-02-29');
-	const residencePicker=page.getByRole('button',{name:/country of residence/});
+	const residencePicker=page.getByRole('button',{name:/country of residence/i});
 	await residencePicker.click();
 	const residenceDialog=page.getByRole('dialog',{name:'Select country of residence'});
 	await residenceDialog.getByRole('searchbox').fill('United States');
 	await residenceDialog.getByRole('option',{name:/United States.*US.*\+1/}).click();
-	const phonePicker=page.getByRole('button',{name:/phone country and dialing code/});
+	const phonePicker=page.getByRole('button',{name:/phone country and dialing code/i});
 	await phonePicker.click();
 	const phoneDialog=page.getByRole('dialog',{name:'Select phone country and dialing code'});
 	await phoneDialog.getByRole('searchbox').fill('United Kingdom');
@@ -248,7 +282,7 @@ test('registration selects account mode, verifies through delivery, then login p
 	await expect(page).toHaveURL(/\/login/);
 	await page.goto('/');
 	await expect(page.getByRole('link',{name:'Login'})).toBeVisible();
-	await expect(page.getByRole('link',{name:'Open an account'}).first()).toBeVisible();
+	await expect(page.getByRole('link',{name:'Open account',exact:true}).first()).toBeVisible();
 });
 
 test('legacy account without registration verification metadata can still sign in',async({page})=>{

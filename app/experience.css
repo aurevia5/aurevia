@@ -20,7 +20,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,su
 .card:before{opacity:.35}
 .btn{min-height:42px;border-radius:4px}
 .input{min-height:43px;border-radius:4px;border-color:rgba(220,230,221,.17);background:#09130d}
-.site-nav{background:rgba(7,18,14,.9);border-color:var(--a-line);backdrop-filter:blur(20px)}
+.site-nav{max-width:100%;overflow:hidden;background:rgba(7,18,14,.9);border-color:var(--a-line);backdrop-filter:blur(20px)}
 .nav-inner{max-width:1440px;min-height:74px;padding-inline:clamp(18px,4vw,58px)}
 .brand{gap:11px;font-size:12px;letter-spacing:.16em}
 .brand b{color:var(--a-brass);font-weight:600}
