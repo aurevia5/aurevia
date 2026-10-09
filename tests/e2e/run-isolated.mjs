@@ -46,8 +46,12 @@ try{
 	const environment={...process.env,DATABASE_URL:databaseUrl,DIRECT_URL:databaseUrl,AUREVIA_E2E_DATABASE_URL:databaseUrl,AUREVIA_E2E_DIRECT_URL:databaseUrl,PORT:String(port),NODE_ENV:'production'};
 	let ready=false;
 	for(let attempt=0;attempt<60;attempt++){
-		const check=await capture('docker',['exec',containerName,'pg_isready','-U',databaseUser,'-d',databaseName]);
-		if(check.code===0){ready=true;break;}
+		const logs=await capture('docker',['logs',containerName]);
+		const initComplete=`${logs.stdout}\n${logs.stderr}`.includes('PostgreSQL init process complete; ready for start up.');
+		if(initComplete){
+			const check=await capture('docker',['exec',containerName,'psql','-v','ON_ERROR_STOP=1','-U',databaseUser,'-d',databaseName,'-c','SELECT 1']);
+			if(check.code===0){ready=true;break;}
+		}
 		await new Promise(resolve=>setTimeout(resolve,1000));
 	}
 	if(!ready)throw new Error('The isolated PostgreSQL container did not become ready.');

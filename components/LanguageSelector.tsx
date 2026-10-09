@@ -14,10 +14,10 @@ export default function LanguageSelector(){
   const current=localeMeta[locale];
 
   useEffect(()=>{
-    const close=(event:MouseEvent)=>{
+    if(!open)return;
+    const close=(event:PointerEvent)=>{
       if(ref.current?.contains(event.target as Node))return;
       setOpen(false);
-      window.setTimeout(()=>triggerRef.current?.focus(),0);
     };
     const key=(event:KeyboardEvent)=>{
       if(event.key!=='Escape')return;
@@ -25,10 +25,10 @@ export default function LanguageSelector(){
       setOpen(false);
       triggerRef.current?.focus();
     };
-    document.addEventListener('mousedown',close);
+    document.addEventListener('pointerdown',close);
     document.addEventListener('keydown',key);
-    return ()=>{document.removeEventListener('mousedown',close);document.removeEventListener('keydown',key)};
-  },[]);
+    return ()=>{document.removeEventListener('pointerdown',close);document.removeEventListener('keydown',key)};
+  },[open]);
 
   function choose(next:typeof locale){setLocale(next);setOpen(false);triggerRef.current?.focus();}
   function focusFirstOption(){requestAnimationFrame(()=>ref.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]')?.focus())}

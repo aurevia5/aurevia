@@ -70,6 +70,7 @@ export default defineConfig({
 			timeout:240000,
 			env:{
 				...process.env,
+				AUREVIA_NEXT_DIST_DIR:'.next-e2e',
 				PORT:'4310',
 				NODE_ENV:'production',
 				NEXTAUTH_URL:baseURL,

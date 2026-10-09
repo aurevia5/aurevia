@@ -19,8 +19,10 @@ export async function GET(){
 		const user=await requireUser();
 		const conversations=await db.supportConversation.findMany({where:{userId:user.id,accountMode:user.accountMode},include:{transaction:{select:{id:true,type:true,status:true,amount:true,currency:true}},messages:{orderBy:{createdAt:'asc'},select:{id:true,authorType:true,body:true,createdAt:true}}},orderBy:{lastMessageAt:'desc'}});
 		return NextResponse.json(jsonSafe(conversations.map(({attachmentKey,...conversation})=>({...conversation,hasAttachment:!!attachmentKey}))),{headers:{'Cache-Control':'private, no-store'}});
-	}catch{
-		return NextResponse.json({error:'Unauthorized'},{status:401});
+	}catch(error){
+		if(error instanceof Error&&error.message==='UNAUTHORIZED')return NextResponse.json({error:'Unauthorized'},{status:401});
+		console.error('Support history could not be loaded.');
+		return NextResponse.json({error:'Support history is temporarily unavailable.'},{status:503,headers:{'Cache-Control':'private, no-store'}});
 	}
 }
 
@@ -49,16 +51,19 @@ export async function POST(req:Request){
 		}
 		const conversation=await db.supportConversation.findFirst({where:{id:input.conversationId,userId:user.id,accountMode:user.accountMode}});
 		if(!conversation)return NextResponse.json({error:'Conversation not found.'},{status:404});
-		if(conversation.status===SupportStatus.RESOLVED)return NextResponse.json({error:'This conversation is resolved.'},{status:409});
+		if(conversation.status===SupportStatus.RESOLVED||conversation.status===SupportStatus.CLOSED)return NextResponse.json({error:'This conversation is closed.'},{status:409});
 		const updated=await db.$transaction(async tx=>{
 			const message=await tx.supportMessage.create({data:{conversationId:conversation.id,authorType:SupportAuthor.USER,authorId:user.id,body:input.message}});
-			const changed=await tx.supportConversation.update({where:{id:conversation.id},data:{status:SupportStatus.AWAITING_ADMIN,lastMessageAt:new Date()}});
+			const changed=await tx.supportConversation.update({where:{id:conversation.id},data:{status:SupportStatus.IN_REVIEW,lastMessageAt:new Date()}});
 			await createNotification(tx,{userId:user.id,type:NotificationType.SUPPORT,title:'Support ticket updated',message:'Your reply was added to the support conversation.',dedupeKey:`support:${conversation.id}:message:${message.id}`,relatedEntity:'SUPPORT',relatedId:conversation.id,actionUrl:'/support'});
+			await notifyActiveAdmins(tx,{type:NotificationType.SUPPORT,title:'User replied to support ticket',message:`A reply was added to support ticket ${conversation.id}.`,dedupeKey:`support:${conversation.id}:user-reply:${message.id}`,relatedEntity:'SUPPORT',relatedId:conversation.id,actionUrl:'/admin/support'});
 			return changed;
 		});
 		return NextResponse.json(jsonSafe(updated));
 	}catch(error){
 		if(error instanceof ZodError)return NextResponse.json({error:'Check the ticket details and message.'},{status:400});
-		return NextResponse.json({error:'Unable to save the support request.'},{status:400});
+		if(error instanceof Error&&error.message==='UNAUTHORIZED')return NextResponse.json({error:'Unauthorized'},{status:401});
+		console.error('Support request could not be saved.');
+		return NextResponse.json({error:'Unable to save the support request.'},{status:503});
 	}
 }

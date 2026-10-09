@@ -1,14 +1,14 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {filterSupportedMarketAssets,getMarketAsset,getMarketHistory,getMarketQuote,MarketDataError} from '../lib/live-market';
 
-function chartResponse(price=41000,marketAgeSeconds=0){
+function chartResponse(price=41000,marketAgeSeconds=0,volume:Array<number|null>=[12,34]){
 	const now=Math.floor(Date.now()/1000);
 	const marketTime=now-marketAgeSeconds;
 	return {
 		chart:{result:[{
 			meta:{regularMarketPrice:price,chartPreviousClose:40000,regularMarketChange:price-40000,regularMarketChangePercent:(price/40000-1)*100,regularMarketOpen:40500,regularMarketTime:marketTime,fiftyTwoWeekLow:25000,fiftyTwoWeekHigh:60000,currency:'USD'},
 			timestamp:[marketTime-60,marketTime],
-			indicators:{quote:[{open:[40000,40500],high:[40500,41500],low:[39900,40400],close:[40400,price],volume:[12,34]}]},
+			indicators:{quote:[{open:[40000,40500],high:[40500,41500],low:[39900,40400],close:[40400,price],volume}]},
 		}],error:null},
 	};
 }
@@ -90,6 +90,21 @@ describe('live Yahoo market service',()=>{
 		vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({c:0,d:0,dp:0,t:Math.floor(Date.now()/1000)}),{status:200})).mockResolvedValueOnce(new Response(JSON.stringify(emptyYahoo),{status:200})));
 		const asset={id:'NO_PRICE_TEST',ticker:'NO_PRICE_TEST',name:'No price test',type:'STOCK' as const,currency:'USD'};
 		await expect(getMarketQuote(asset,'invalid-test-key')).rejects.toMatchObject({status:503});
+	});
+
+	it('rejects Yahoo quotes with no provider timestamp or daily comparison instead of inventing metadata',async()=>{
+		const missingTimestamp={chart:{result:[{meta:{regularMarketPrice:42,chartPreviousClose:40},timestamp:[],indicators:{quote:[{close:[42]}]}}],error:null}};
+		vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify(missingTimestamp),{status:200})));
+		const asset={id:'INCOMPLETE_QUOTE_TEST',ticker:'INCOMPLETE_QUOTE_TEST',name:'Incomplete quote test',type:'STOCK' as const,currency:'USD'};
+		await expect(getMarketQuote(asset)).rejects.toBeInstanceOf(MarketDataError);
+	});
+
+	it('keeps missing historical volume unavailable rather than reporting zero',async()=>{
+		const missingVolume=chartResponse(41000,0,[null,null]);
+		vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify(missingVolume),{status:200})));
+		const asset={id:'NO_VOLUME_TEST',ticker:'NO_VOLUME_TEST',name:'No volume test',type:'STOCK' as const,currency:'USD'};
+		const history=await getMarketHistory(asset,'1d');
+		expect(history.candles[0].volume).toBeNull();
 	});
 
 	it('reads Finnhub historical candles without inventing missing bars',async()=>{

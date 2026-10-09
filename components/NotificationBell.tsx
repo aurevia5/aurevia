@@ -28,6 +28,7 @@ export default function NotificationBell(){
 		if(showLoading)setLoading(true);
 		try{
 			const response=await fetch('/api/notifications?limit=8',{cache:'no-store'});
+			if(response.status===401){setNotifications([]);setUnreadCount(0);setError('');setOpen(false);return;}
 			if(!response.ok)throw new Error('Unable to load notifications.');
 			const result:NotificationResponse=await response.json();
 			setNotifications(result.notifications);setUnreadCount(result.unreadCount);setError('');

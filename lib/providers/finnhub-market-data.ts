@@ -60,7 +60,7 @@ export async function getFinnhubHistory(asset:LiveMarketAsset,range:string,inter
 		const time=finite(data.t[i]),open=finite(data.o[i]),high=finite(data.h[i]),low=finite(data.l[i]),close=finite(data.c[i]);
 		if(time===null||open===null||high===null||low===null||close===null||open<=0||high<=0||low<=0||close<=0)continue;
 		const volume=Array.isArray(data.v)?finite(data.v[i]):null;
-		candles.push({time,open,high,low,close,volume:volume??0});
+		candles.push({time,open,high,low,close,volume});
 	}
 	if(!candles.length)throw new FinnhubMarketDataError(`Finnhub has no valid historical data for ${asset.id}.`,503);
 	const quote=await getFinnhubQuote(asset,apiKey,fetcher);

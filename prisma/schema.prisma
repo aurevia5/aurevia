@@ -86,9 +86,27 @@ enum EntryType {
 }
 
 enum SupportStatus {
+  OPEN
+  IN_REVIEW
+  WAITING_FOR_USER
   AWAITING_ADMIN
   AWAITING_USER
   RESOLVED
+  CLOSED
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TierUpgradeStatus {
+  PENDING_REVIEW
+  NEEDS_INFORMATION
+  APPROVED
+  REJECTED
 }
 
 enum SupportAuthor {
@@ -177,6 +195,7 @@ model User {
   country String?
   role Role @default(USER)
   accountMode AccountMode @default(DEMO)
+  approvedTier Int @default(1)
   status UserStatus @default(ACTIVE)
   twoFactorEnabled Boolean @default(false)
   termsAcceptedAt DateTime?
@@ -206,6 +225,8 @@ model User {
   portfolioSnapshots PortfolioSnapshot[]
   createdInvestmentOpportunities InvestmentOpportunity[] @relation("InvestmentOpportunityCreator")
   waitlistEntry WaitlistEntry?
+  tierRequests TierUpgradeRequest[] @relation("TierRequestUser")
+  tierReviews TierUpgradeRequest[] @relation("TierRequestReviewer")
   avatarKey String?
 }
 
@@ -482,7 +503,8 @@ model SupportConversation {
   category SupportCategory @default(GENERAL)
   isComplaint Boolean @default(false)
   attachmentKey String?
-  status SupportStatus @default(AWAITING_ADMIN)
+  status SupportStatus @default(OPEN)
+  priority SupportPriority @default(NORMAL)
   transactionId String?
   transaction FundingRequest? @relation(fields:[transactionId],references:[id],onDelete:SetNull)
   createdAt DateTime @default(now())
@@ -491,6 +513,25 @@ model SupportConversation {
   messages SupportMessage[]
   @@index([userId,createdAt])
   @@index([status,lastMessageAt])
+  @@index([priority,status,lastMessageAt])
+}
+
+model TierUpgradeRequest {
+  id String @id @default(cuid())
+  userId String
+  user User @relation("TierRequestUser",fields:[userId],references:[id],onDelete:Cascade)
+  currentTier Int
+  requestedTier Int
+  status TierUpgradeStatus @default(PENDING_REVIEW)
+  userMessage String? @db.VarChar(1000)
+  adminReason String? @db.VarChar(1000)
+  reviewedById String?
+  reviewedBy User? @relation("TierRequestReviewer",fields:[reviewedById],references:[id],onDelete:SetNull)
+  reviewedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId,status,createdAt])
+  @@index([status,createdAt])
 }
 model SupportMessage {
   id String @id @default(cuid())

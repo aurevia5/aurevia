@@ -58,13 +58,13 @@ Aurevia Invest is a Next.js 14 application using TypeScript, PostgreSQL, Prisma,
 
 ### Live market dashboard
 
-The `/markets` page uses Yahoo Finance's unofficial chart endpoint through same-origin Next.js API routes. It requires no API key or new environment variable. Quotes refresh every five seconds for the selected asset; watchlist quotes refresh every 30 seconds, and server-side in-process caching reduces duplicate provider requests. Historical OHLCV data supports the displayed ranges and is cached for up to one minute. Yahoo Finance is not an official API and can delay, limit, or discontinue access; provider errors are shown in the dashboard rather than replaced with simulated prices. The ticker and chart are informational and are not connected to trade execution.
+The `/markets` page uses the server-only `FINNHUB_API_KEY` when configured and falls back to Yahoo Finance's unofficial chart endpoint if Finnhub is unavailable or lacks an instrument. Quotes refresh every five seconds for the selected asset; watchlist quotes refresh every 30 seconds, and server-side in-process caching reduces duplicate provider requests. Historical OHLCV data supports the displayed ranges and is cached for up to one minute. Provider timestamps and source are shown, and the last successful quote is explicitly marked stale when reused; provider errors are never replaced with invented prices. Yahoo Finance is not an official API and can delay, limit, or discontinue access. Watchlists are stored on the device in separate public/account scopes. The ticker and chart are informational and are not connected to trade execution.
 
 ## Important scope boundary
 
 The platform's funding and market environment is intentionally internal simulation. `BANK_SIM`, `CRYPTO_SIM`, and `INTERNAL_TRANSFER` are not bank, card, blockchain, custody, or exchange integrations. Connecting real customer money or external execution requires regulated providers, KYC/AML/sanctions controls, reconciliation, custody, licensing, security review and jurisdiction-specific compliance.
 
-The 2FA control currently stores the account-security flag. A real deployment must connect a TOTP/WebAuthn challenge and recovery process before treating it as actual multi-factor authentication.
+Two-factor authentication is currently disabled. The legacy database flag is not treated as protection, the profile API reports it as unavailable, and attempts to enable it are rejected until enrollment, login challenges, recovery, and reauthentication are implemented.
 
 ## Requirements
 
@@ -90,7 +90,7 @@ Only `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_SUPABASE_URL` are public configurati
 
 Registration can complete without a verification challenge when no delivery provider is configured. For email verification, configure `VERIFICATION_EMAIL_API_URL` and `VERIFICATION_EMAIL_API_KEY`. If `PHONE_VERIFICATION_REQUIRED=true`, configure `VERIFICATION_SMS_API_URL` and `VERIFICATION_SMS_API_KEY`; registration then requires a phone number. Keep provider credentials server-only. `NEXT_PUBLIC_APP_URL`, `PORT`, and `MARKET_TICK_MS` are optional and have runtime defaults.
 
-For production, set `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` to the canonical HTTPS domain configured for that deployment. Production startup rejects a missing `NEXTAUTH_SECRET` or `NEXTAUTH_URL`; it never trusts an arbitrary Host header to establish the auth origin. Configure `SUPPORT_EMAIL` and `COMPLAINTS_EMAIL` separately from `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. When SMTP is missing, password recovery is unavailable and support/funding actions report that no email was sent; in-app tickets and notifications remain recorded.
+For production, set `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` to the canonical HTTPS domain configured for that deployment. Production startup rejects a missing `NEXTAUTH_SECRET` or `NEXTAUTH_URL`; it never trusts an arbitrary Host header to establish the auth origin. Official support contact defaults to `aureviainvest@gmail.com` and can be overridden with `SUPPORT_EMAIL`; `COMPLAINTS_EMAIL` may be set separately. Configure these destinations separately from `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. When SMTP is missing, password recovery is unavailable and support/funding actions report that no email was sent; in-app tickets and notifications remain recorded.
 
 ### Render deployment
 
@@ -122,7 +122,7 @@ Private file workflows require server-only `SUPABASE_URL` and `SUPABASE_SERVICE_
 | Capability | Provider/configuration | Current behavior without provider |
 | --- | --- | --- |
 | Database | Supabase Postgres; `DATABASE_URL`, `DIRECT_URL` | Server operations fail explicitly; no in-memory financial fallback |
-| Market information | Yahoo Finance chart endpoint; no credential configured or required by this unofficial endpoint | Live market screens show unavailable/stale provider status; internal prices are separately labelled simulated |
+| Market information | Finnhub when `FINNHUB_API_KEY` is configured; Yahoo Finance chart endpoint as an unofficial fallback | Live market screens show provider source and freshness; provider failures show unavailable/stale data; internal prices are separately labelled simulated |
 | Broker/execution | Provider contract only; no broker adapter or credentials | REAL execution path is disabled and rejected; only DEMO orders are simulated |
 | Deposits and withdrawals | Funding-provider contract only; no bank, card, blockchain, or custody adapter | REAL deposit approval and manual withdrawal settlement are blocked; no external transfer is claimed |
 | REAL investments | No investment execution/settlement provider | Requests may be reviewed, but activation, completion, and settlement are blocked |

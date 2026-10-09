@@ -20,7 +20,7 @@ export async function GET(){
       db.order.findMany({where:{userId:user.id,accountMode:mode},include:{instrument:{select:{symbol:true,name:true}}},orderBy:{createdAt:'desc'},take:8}),
       db.investmentRequest.findMany({where:{userId:user.id,accountMode:mode},include:{opportunity:{select:{title:true,category:true,riskLevel:true,assetSymbol:true,targetReturnPercent:true,durationDays:true}}},orderBy:{requestedAt:'desc'},take:6}),
       db.notification.findMany({where:{userId:user.id},orderBy:{createdAt:'desc'},take:6}),
-      db.user.findUnique({where:{id:user.id},select:{id:true,email:true,name:true,avatarKey:true,role:true,status:true,accountMode:true,kycStatus:true,verifiedAt:true,verifiedChannel:true,phoneVerified:true,phone:true,country:true,createdAt:true,kyc:{select:{submittedAt:true}},kycDocuments:{where:{kind:'IDENTITY_DOCUMENT',status:'APPROVED'},select:{id:true}}}}),
+      db.user.findUnique({where:{id:user.id},select:{id:true,email:true,name:true,avatarKey:true,role:true,status:true,accountMode:true,approvedTier:true,kycStatus:true,verifiedAt:true,verifiedChannel:true,phoneVerified:true,phone:true,country:true,createdAt:true,kyc:{select:{submittedAt:true}},kycDocuments:{where:{kind:'IDENTITY_DOCUMENT',status:'APPROVED'},select:{id:true}}}}),
       db.instrument.findMany({where:{enabled:true},orderBy:{symbol:'asc'},take:12}),
     ]);
     const supportedMarketInstruments=filterSupportedMarketAssets(marketInstruments);
@@ -30,7 +30,7 @@ export async function GET(){
     const unrealized=mode===AccountMode.DEMO?positions.reduce((sum,p)=>sum.plus((p.side==='BUY'?p.instrument.price.minus(p.entryPrice):p.entryPrice.minus(p.instrument.price)).mul(p.quantity)),new Prisma.Decimal(0)):new Prisma.Decimal(0);
     const activity=await getUserActivity(user.id,mode,'all',8);
     const recentActivity=activity.items.map(item=>({id:item.id,category:item.category,action:item.action,timestamp:item.timestamp,asset:item.asset,amount:item.amount,status:item.status,source:item.sourceLabel,pnl:item.pnl,adminInitiated:item.adminInitiated,link:item.link}));
-    const tier=getAccountTier({accountMode:mode,kycStatus:profile?.kycStatus||'PENDING',verificationDocuments:profile?.kycDocuments?.length||0,verificationSubmitted:!!profile?.kyc?.submittedAt});
+    const tier=getAccountTier({accountMode:mode,kycStatus:profile?.kycStatus||'PENDING',verificationDocuments:profile?.kycDocuments?.length||0,verificationSubmitted:!!profile?.kyc?.submittedAt,approvedTier:profile?.approvedTier});
     const safeProfile={...profile,...tier};
     return NextResponse.json(jsonSafe({accountMode:mode,cash,positionValue,invested,unrealized,portfolioValue:cash.plus(positionValue).plus(invested),openOrders:orders.filter(o=>o.status==='OPEN').length,activePositions:positions.length,activity:recentActivity,orders,positions,investments,notifications,profile:safeProfile,marketInstruments:supportedMarketInstruments.map(i=>({id:i.id,symbol:i.symbol,name:i.name,price:Number(i.price),changePercent:0,updatedAt:i.updatedAt.toISOString()}))}),{headers:{'Cache-Control':'private, no-store'}});
   }catch(error){

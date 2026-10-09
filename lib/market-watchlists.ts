@@ -20,6 +20,21 @@ type MarketWatchlistState={
 };
 
 const initialWatchlist:MarketWatchlist={id:'market-default',name:'Mi lista de control',symbols:DEFAULT_WATCHLIST};
+let activeStorageScope='public';
+
+function getScopedStorageKey(name:string){
+  return activeStorageScope==='public'?name:`${name}:${encodeURIComponent(activeStorageScope)}`;
+}
+
+function isPersistedWatchlistState(value:unknown):value is Pick<MarketWatchlistState,'watchlists'|'activeWatchlistId'|'selectedSymbol'>{
+  if(!value||typeof value!=='object')return false;
+  const state=value as Record<string,unknown>;
+  return Array.isArray(state.watchlists)&&typeof state.activeWatchlistId==='string'&&typeof state.selectedSymbol==='string';
+}
+
+function defaultWatchlistState(state:MarketWatchlistState){
+  return {...state,watchlists:[{...initialWatchlist,symbols:[...initialWatchlist.symbols]}],activeWatchlistId:initialWatchlist.id,selectedSymbol:'DJI'};
+}
 
 export const useMarketWatchlists=create<MarketWatchlistState>()(persist((set,get)=>({
   watchlists:[initialWatchlist],
@@ -46,7 +61,22 @@ export const useMarketWatchlists=create<MarketWatchlistState>()(persist((set,get
     symbols.splice(source,1);symbols.splice(target,0,from);
     return {...list,symbols};
   })})),
-}),{name:'aurevia-live-market-watchlists',storage:createJSONStorage(()=>localStorage),partialize:state=>({watchlists:state.watchlists,activeWatchlistId:state.activeWatchlistId,selectedSymbol:state.selectedSymbol})}));
+}),{
+  name:'aurevia-live-market-watchlists',
+  storage:createJSONStorage(()=>({
+    getItem:name=>localStorage.getItem(getScopedStorageKey(name)),
+    setItem:(name,value)=>localStorage.setItem(getScopedStorageKey(name),value),
+    removeItem:name=>localStorage.removeItem(getScopedStorageKey(name)),
+  })),
+  partialize:state=>({watchlists:state.watchlists,activeWatchlistId:state.activeWatchlistId,selectedSymbol:state.selectedSymbol}),
+  merge:(persistedState,currentState)=>isPersistedWatchlistState(persistedState)?{...currentState,...persistedState}:defaultWatchlistState(currentState),
+  skipHydration:true,
+}));
+
+export async function setMarketWatchlistUserScope(userId:string|null){
+  activeStorageScope=userId?`user:${userId}`:'public';
+  await useMarketWatchlists.persist.rehydrate();
+}
 
 export function getActiveWatchlist(state:MarketWatchlistState){
   return state.watchlists.find(list=>list.id===state.activeWatchlistId)||state.watchlists[0];

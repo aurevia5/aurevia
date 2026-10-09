@@ -34,7 +34,7 @@ export default function LivePriceChart({candles,quote,timeframe,loading,error}:{
     const crosshairHandler=(param:Parameters<typeof chart.subscribeCrosshairMove>[0] extends (arg:infer T)=>void?T:never)=>{
       if(!param.time){setHovered(null);return;}
       const datum=param.seriesData.get(candlesApi);
-      if(datum&&'open'in datum)setHovered({time:Number(param.time),open:datum.open,high:datum.high,low:datum.low,close:datum.close,volume:0});
+      if(datum&&'open'in datum)setHovered({time:Number(param.time),open:datum.open,high:datum.high,low:datum.low,close:datum.close,volume:null});
       else setHovered(null);
     };
     chart.subscribeCrosshairMove(crosshairHandler);
@@ -46,8 +46,8 @@ export default function LivePriceChart({candles,quote,timeframe,loading,error}:{
 
   useEffect(()=>{
     if(!candleSeries.current||!volumeSeries.current||!candles.length)return;
-    candleSeries.current.setData(candles.map(candle=>({...candle,time:candle.time as UTCTimestamp})));
-    volumeSeries.current.setData(candles.map(candle=>({time:candle.time as UTCTimestamp,value:candle.volume,color:candle.close>=candle.open?'rgba(51,199,162,.32)':'rgba(240,111,118,.32)'})));
+    candleSeries.current.setData(candles.map(({time,open,high,low,close})=>({time:time as UTCTimestamp,open,high,low,close})));
+    volumeSeries.current.setData(candles.flatMap(candle=>candle.volume===null?[]:[{time:candle.time as UTCTimestamp,value:candle.volume,color:candle.close>=candle.open?'rgba(51,199,162,.32)':'rgba(240,111,118,.32)'}]));
     if(!hasFit.current||currentTimeframe.current!==timeframe){chartRef.current?.timeScale().fitContent();hasFit.current=true;currentTimeframe.current=timeframe;}
   },[candles,timeframe]);
 
@@ -57,7 +57,8 @@ export default function LivePriceChart({candles,quote,timeframe,loading,error}:{
     const updated={...latest,close:quotePrice,high:Math.max(latest.high,quotePrice),low:Math.min(latest.low,quotePrice)};
     const time=latest.time as UTCTimestamp;
     candleSeries.current.update({...updated,time});
-    volumeSeries.current.update({time,value:quoteVolume??latest.volume,color:updated.close>=updated.open?'rgba(51,199,162,.32)':'rgba(240,111,118,.32)'});
+    const volume=quoteVolume??latest.volume;
+    if(volume!==null)volumeSeries.current.update({time,value:volume,color:updated.close>=updated.open?'rgba(51,199,162,.32)':'rgba(240,111,118,.32)'});
   },[candles,quotePrice,quoteVolume]);
 
   const shown=hovered||candles[candles.length-1];

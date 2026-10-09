@@ -1,17 +1,16 @@
 import {AccountMode,Prisma,KycStatus} from '@prisma/client';
 
 export type AccountTier='TIER 1'|'TIER 2'|'TIER 3';
-export type TierContext={accountMode:AccountMode;kycStatus:KycStatus;verificationDocuments:number;verificationSubmitted?:boolean;accountStatus?:string};
+export type TierContext={accountMode:AccountMode;kycStatus:KycStatus;verificationDocuments:number;verificationSubmitted?:boolean;approvedTier?:number;accountStatus?:string};
 export type WithdrawalValidation={balance:string|number;pending:string|number;amount:string|number;withdrawalEnabled:boolean;accountRestricted?:boolean;kycStatus:KycStatus};
 
 const decimal=(value:string|number)=>new Prisma.Decimal(value.toString());
 
 export function getAccountTier(context:TierContext):{label:AccountTier;progress:number;eligibleForRealTrading:boolean;verified:boolean}{
 	const verified=context.accountMode===AccountMode.REAL&&context.verificationSubmitted===true&&context.kycStatus===KycStatus.APPROVED&&context.verificationDocuments>0;
-	if(context.accountMode===AccountMode.REAL&&verified)return {label:'TIER 3',progress:100,eligibleForRealTrading:false,verified:true};
-	if(context.accountMode===AccountMode.DEMO)return {label:'TIER 1',progress:60,eligibleForRealTrading:false,verified:false};
-	if(context.verificationSubmitted||context.kycStatus===KycStatus.APPROVED)return {label:'TIER 2',progress:75,eligibleForRealTrading:false,verified:false};
-	return {label:'TIER 1',progress:25,eligibleForRealTrading:false,verified:false};
+	const evidenceTier=context.accountMode===AccountMode.REAL&&verified?3:context.accountMode===AccountMode.REAL&&(context.verificationSubmitted||context.kycStatus===KycStatus.APPROVED)?2:1;
+	const level=Math.max(evidenceTier,Math.min(3,Math.max(1,context.approvedTier||1)));
+	return {label:`TIER ${level}` as AccountTier,progress:level===3?100:level===2?75:context.accountMode===AccountMode.DEMO?60:25,eligibleForRealTrading:false,verified:level===3&&verified};
 }
 
 export function verifyKycState(status:KycStatus){return status===KycStatus.APPROVED;}

@@ -81,7 +81,7 @@ export interface ExecutionProvider{
 
 export type MarketQuote={
 	symbol:string;
-	price:number;
+	price:number|null;
 	bid:number|null;
 	ask:number|null;
 	open:number|null;

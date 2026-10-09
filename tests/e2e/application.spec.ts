@@ -16,14 +16,36 @@ const viewports=[
 	{width:1920,height:1080},
 ];
 
-const publicRoutes=['/','/login','/register','/markets','/client-stories','/about','/education','/support','/terms','/privacy','/risk-disclosure'];
+const publicRoutes=['/','/login','/register','/markets','/client-stories','/about','/education','/support','/waitlist','/terms','/privacy','/risk-disclosure'];
 const authenticatedRoutes=['/dashboard','/trade','/markets','/portfolio','/orders','/investments','/wallet','/wallet/transactions','/kyc','/tier','/settings','/support','/notifications'];
-const adminRoutes=['/admin/login','/admin','/admin/investments','/admin/payments','/admin/support'];
+const adminRoutes=['/admin/login','/admin','/admin/investments','/admin/payments','/admin/support','/admin/tiers'];
 
 function fixture(name:string){
 	const value=process.env[`AUREVIA_E2E_${name}`];
 	if(!value)throw new Error(`Playwright fixture ${name} is unavailable.`);
 	return value;
+}
+
+async function typeInto(page:import('@playwright/test').Page,field:import('@playwright/test').Locator,value:string){
+	await field.click();
+	await expect.poll(()=>field.evaluate(element=>document.activeElement===element)).toBe(true);
+	await page.keyboard.insertText(value);
+	await expect(field).toHaveValue(value);
+}
+
+async function selectAccountMode(page:import('@playwright/test').Page,accountMode:'DEMO'|'REAL',options:{waitForCompletion?:boolean}={}){
+	const mode=page.getByLabel('Account mode');
+	await expect(mode).not.toHaveAttribute('aria-busy','true');
+	if(!await mode.isVisible()){
+		const menu=page.locator('.menu-button');
+		if(await menu.getAttribute('aria-expanded')!=='true')await menu.click();
+	}
+	await expect(mode).toBeVisible();
+	await mode.selectOption(accountMode);
+	if(options.waitForCompletion!==false){
+		await expect(mode).toHaveValue(accountMode);
+		await expect(mode).toHaveAttribute('aria-busy','false');
+	}
 }
 
 test.describe('public routes and responsive layout',()=>{
@@ -46,16 +68,130 @@ test.describe('public routes and responsive layout',()=>{
 	}
 });
 
+test('waitlist form submits and shows a truthful success state',async({page})=>{
+	await page.setViewportSize({width:375,height:812});
+	await page.goto('/waitlist');
+	await expect(page.locator('.waitlist-page')).toHaveAttribute('data-waitlist-ready','true');
+	await waitForStartup(page);
+	const waitlistName=page.locator('.waitlist-form input[autocomplete="name"]');
+	const waitlistEmail=page.locator('.waitlist-form input[autocomplete="email"]');
+	await waitlistName.fill('Temporary E2E Waitlist');
+	await expect(waitlistName).toHaveValue('Temporary E2E Waitlist');
+	const email=`waitlist-${randomUUID()}@example.invalid`;
+	await waitlistEmail.fill(email);
+	await expect(waitlistEmail).toHaveValue(email);
+	await page.locator('.waitlist-form select').first().selectOption('US');
+	await page.locator('.waitlist-form input[type="checkbox"]').check();
+	await page.getByRole('button',{name:/Join (the )?waitlist/i}).click();
+	await expect(page.locator('.waitlist-success')).toContainText(/waitlist|access|request/i);
+	await expect(page.locator('.waitlist-page')).not.toContainText(/position\s*#?\d+/i);
+	await expectNoHorizontalOverflow(page);
+});
+
 test('mobile navigation opens and navigates to Login',async({page})=>{
 	await page.setViewportSize({width:320,height:800});
 	await page.goto('/');
 	await page.getByRole('button',{name:'Open navigation'}).click();
 	const nav=page.getByRole('navigation',{name:'Primary navigation'});
 	await expect(nav).toBeVisible();
+	const firstLink=nav.getByRole('link').first();
+	await expect.poll(()=>firstLink.evaluate(element=>{
+		const bounds=element.getBoundingClientRect();
+		const target=document.elementFromPoint(bounds.left+bounds.width/2,bounds.top+bounds.height/2);
+		return target===element||element.contains(target);
+	})).toBe(true);
+	await page.getByRole('button',{name:'Close navigation'}).click();
+	await expect(page.getByRole('button',{name:'Open navigation'})).toHaveAttribute('aria-expanded','false');
+	await page.getByRole('button',{name:'Open navigation'}).click();
 	await nav.getByRole('link',{name:'Login'}).click();
 	await expect(page).toHaveURL(/\/login$/);
 	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
 	await expectNoHorizontalOverflow(page);
+});
+
+test('login and registration fields receive real pointer and keyboard input',async({page})=>{
+	await page.setViewportSize({width:390,height:844});
+	await page.goto('/login');
+	await waitForStartup(page);
+	const identifier=page.getByLabel('Email or administrator username');
+	const password=page.getByLabel('Password',{exact:true});
+	await typeInto(page,identifier,'invalid-user@example.test');
+	await typeInto(page,password,'NotARealPassword123!');
+	await page.getByRole('button',{name:'Show password'}).click();
+	await expect(password).toHaveAttribute('type','text');
+	await expect(password).toHaveValue('NotARealPassword123!');
+	await page.getByRole('button',{name:'Hide password'}).click();
+	await page.getByRole('button',{name:'Sign in'}).click();
+	await expect(page.locator('.auth-error[role="alert"]')).toContainText(/sign-in failed/i);
+	await expect(identifier).toHaveValue('invalid-user@example.test');
+
+	await page.goto('/register');
+	await waitForStartup(page);
+	await typeInto(page,page.getByLabel('First name'),'Browser');
+	await typeInto(page,page.getByLabel('Last name'),'Input Test');
+	const dateOfBirth=page.getByLabel('Date of birth');
+	await dateOfBirth.click();
+	await expect.poll(()=>dateOfBirth.evaluate(element=>document.activeElement===element)).toBe(true);
+	await dateOfBirth.fill('1990-01-01');
+	await expect(dateOfBirth).toHaveValue('1990-01-01');
+	await typeInto(page,page.getByLabel('Email address'),'input-test@example.test');
+	await typeInto(page,page.getByLabel(/Phone number/),'2025550100');
+	await typeInto(page,page.getByLabel('Password',{exact:true}),'ValidPassword123!');
+	await typeInto(page,page.getByLabel('Confirm password'),'ValidPassword123!');
+	await page.getByRole('radio',{name:/REAL ACCOUNT/}).click();
+	await expect(page.getByRole('radio',{name:/REAL ACCOUNT/})).toBeChecked();
+	await page.getByRole('checkbox').check();
+	await expect(page.getByRole('checkbox')).toBeChecked();
+	await expectNoHorizontalOverflow(page);
+});
+
+test('dashboard hierarchy remains usable and contained at mobile and desktop widths',async({page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	for(const width of [320,375,390,430,1440]){
+		await page.setViewportSize({width,height:900});
+		await page.goto('/dashboard');
+		await expect(page.getByRole('heading',{name:/Hello,/})).toBeVisible();
+		await expect(page.locator('.dashboard-metric')).toHaveCount(6);
+		await expect(page.locator('.dashboard-panel')).toHaveCount(6);
+		await expectNoHorizontalOverflow(page);
+		const layout=await page.evaluate(()=>{
+			const metrics=document.querySelector('.dashboard-metrics');
+			const panels=[...document.querySelectorAll('.dashboard-panel')].map(panel=>{
+				const rect=panel.getBoundingClientRect();
+				return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom};
+			});
+			return {metricColumns:getComputedStyle(metrics!).gridTemplateColumns.split(' ').length,panels};
+		});
+		expect(layout.metricColumns).toBe(width<1024?2:3);
+		for(let index=0;index<layout.panels.length;index++){
+			for(let other=index+1;other<layout.panels.length;other++){
+				const a=layout.panels[index],b=layout.panels[other];
+				const overlaps=a.left<b.right-1&&a.right>b.left+1&&a.top<b.bottom-1&&a.bottom>b.top+1;
+				expect(overlaps,`dashboard panels ${index} and ${other} overlap at ${width}px`).toBe(false);
+			}
+		}
+	}
+	await page.setViewportSize({width:390,height:844});
+	const profile=page.getByRole('button',{name:'Profile'});
+	await profile.click();
+	await expect(page.locator('.dashboard-profile-panel')).toBeVisible();
+	await expect(page.getByRole('link',{name:'Open Notifications'})).toBeVisible();
+});
+
+test('authenticated desktop navigation opens without overflow and closes after navigation',async({page})=>{
+	await page.setViewportSize({width:1280,height:900});
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	const menu=page.locator('.menu-button');
+	await menu.click();
+	const navigation=page.getByRole('navigation',{name:'Primary navigation'});
+	await expect(navigation).toBeVisible();
+	await expect(menu).toHaveAttribute('aria-expanded','true');
+	await expect(navigation.getByText('Investing',{exact:true})).toBeVisible();
+	await expect(navigation.getByText('Account & support',{exact:true})).toBeVisible();
+	await expectNoHorizontalOverflow(page);
+	await navigation.getByRole('link',{name:'Notifications'}).click();
+	await expect(page).toHaveURL(/\/notifications/);
+	await expect(menu).toHaveAttribute('aria-expanded','false');
 });
 
 test('language selection persists Arabic RTL direction and remains responsive',async({page})=>{
@@ -88,12 +224,11 @@ test('language selector supports keyboard navigation, outside dismissal, and foc
 	await trigger.click();
 	await page.locator('body').click({position:{x:5,y:5}});
 	await expect(menu).toBeHidden();
-	await expect(trigger).toBeFocused();
+	await expect(trigger).not.toBeFocused();
 	await expectNoHorizontalOverflow(page);
 });
 
-test('startup waits for session initialization, then stays dismissed across navigation and refresh',async({page})=>{
-	await page.emulateMedia({reducedMotion:'reduce'});
+test('startup releases page interaction if session initialization is delayed',async({page})=>{
 	let releaseSession!:()=>void;
 	const sessionGate=new Promise<void>(resolve=>{releaseSession=resolve});
 	await page.route('**/api/auth/session',async route=>{
@@ -103,8 +238,12 @@ test('startup waits for session initialization, then stays dismissed across navi
 	await page.goto('/login');
 	const startup=page.getByRole('status',{name:'Loading Aurevia Invest'});
 	await expect(startup).toBeVisible();
+	await expect(startup).toBeHidden({timeout:5000});
+	const email=page.getByLabel('Email or administrator username');
+	await email.fill('qa@example.invalid');
+	await expect(email).toHaveValue('qa@example.invalid');
+	await expect(page.locator('.scene-content > div[inert]')).toHaveCount(0);
 	releaseSession();
-	await expect(startup).toBeHidden();
 	await expect(page.getByRole('heading',{name:'Welcome back'})).toBeVisible();
 	await page.getByRole('link',{name:'Create an account'}).click();
 	await expect(page.getByRole('heading',{name:'Open an account'})).toBeVisible();
@@ -140,6 +279,38 @@ test('market refresh runs in place without reloading the page',async({page})=>{
 	await expect.poll(()=>quoteRequests).toBeGreaterThan(priorQuotes);
 	await expect.poll(()=>historyRequests).toBeGreaterThan(priorHistory);
 	expect(documentRequests).toBe(beforeRetry);
+});
+
+test('watchlists persist across refresh and remain isolated between accounts',async({page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await page.goto('/markets');
+	const sidebar=page.getByRole('complementary',{name:'Listas de seguimiento'});
+	await expect(sidebar).toHaveAttribute('aria-busy','false');
+	await page.getByRole('button',{name:'Crear lista de seguimiento'}).click();
+	await page.getByLabel('Nombre de la nueva lista').fill('User A private list');
+	await page.getByRole('button',{name:'Guardar lista'}).click();
+	await page.getByRole('button',{name:/Añadir símbolo/}).click();
+	await page.getByLabel('Buscar símbolo para añadir').fill('AAPL');
+	await page.locator('.live-symbol-results').getByRole('button').filter({hasText:'AAPL'}).click();
+	await expect(page.locator('.live-watch-row').filter({hasText:'AAPL'})).toBeVisible();
+	await page.reload();
+	await expect(sidebar).toHaveAttribute('aria-busy','false');
+	await expect(page.locator('#watchlist-select option',{hasText:'User A private list'})).toHaveCount(1);
+	await expect(page.locator('.live-watch-row').filter({hasText:'AAPL'})).toBeVisible();
+
+	await logout(page);
+	await loginAs(page,fixture('LEGACY_USER_EMAIL'),fixture('LEGACY_USER_PASSWORD'));
+	await page.goto('/markets');
+	await expect(sidebar).toHaveAttribute('aria-busy','false');
+	await expect(page.locator('#watchlist-select option',{hasText:'User A private list'})).toHaveCount(0);
+	await expect(page.locator('.live-watch-row').filter({hasText:'AAPL'})).toHaveCount(0);
+
+	await logout(page);
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await page.goto('/markets');
+	await expect(sidebar).toHaveAttribute('aria-busy','false');
+	await expect(page.locator('#watchlist-select option',{hasText:'User A private list'})).toHaveCount(1);
+	await expect(page.locator('.live-watch-row').filter({hasText:'AAPL'})).toBeVisible();
 });
 
 test('country selector searches Nigeria and United Kingdom and shows their dialing codes',async({page})=>{
@@ -238,10 +409,12 @@ test('registration selects account mode, verifies through delivery, then login p
 	expect(await providerStats.json()).toMatchObject({email:1,sms:0});
 	const unverifiedLogin=await page.context().newPage();
 	await unverifiedLogin.goto('/login');
+	await waitForStartup(unverifiedLogin);
 	await unverifiedLogin.getByLabel('Email or administrator username').fill(email);
 	await unverifiedLogin.getByLabel('Password',{exact:true}).fill(password);
 	await unverifiedLogin.getByRole('button',{name:'Sign in'}).click();
 	await expect(unverifiedLogin.getByText(/Sign-in failed/)).toBeVisible();
+	await expect(unverifiedLogin.getByLabel('Email or administrator username')).toHaveValue(email);
 	await unverifiedLogin.close();
 	const codeResponse=await page.request.get(`http://127.0.0.1:4311/test-code?email=${encodeURIComponent(email)}`);
 	expect(codeResponse.ok()).toBeTruthy();
@@ -268,9 +441,9 @@ test('registration selects account mode, verifies through delivery, then login p
 	expect((await kycResponse.json()).dob).toBe('2000-02-29T00:00:00.000Z');
 	const demoWallet=await page.request.get('/api/wallet');
 	expect(Number((await demoWallet.json()).balance)).toBe(5000);
-	await page.getByLabel('Account mode').selectOption('REAL');
+	await selectAccountMode(page,'REAL');
 	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
-	await page.getByLabel('Account mode').selectOption('DEMO');
+	await selectAccountMode(page,'DEMO');
 	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
 	await page.goto('/');
 	await expect(page.getByRole('link',{name:/Dashboard/}).first()).toBeVisible();
@@ -295,8 +468,10 @@ test('session replacement is explicit and refresh-safe',async({page,browser})=>{
 	const email=fixture('USER_EMAIL');
 	const password=fixture('USER_PASSWORD');
 	await page.goto('/login');
+	await waitForStartup(page);
 	await page.getByLabel('Email or administrator username').fill(email);
 	await page.getByLabel('Password',{exact:true}).fill(password);
+	await page.getByRole('checkbox',{name:/Replace the active Aurevia session/}).check();
 	await page.getByRole('button',{name:'Sign in'}).click();
 	await page.waitForURL(/dashboard/);
 	await page.reload();
@@ -305,6 +480,7 @@ test('session replacement is explicit and refresh-safe',async({page,browser})=>{
 	try{
 		const otherDevice=await otherContext.newPage();
 		await otherDevice.goto('/login');
+		await waitForStartup(otherDevice);
 		await otherDevice.getByLabel('Email or administrator username').fill(email);
 		await otherDevice.getByLabel('Password',{exact:true}).fill(password);
 		await otherDevice.getByRole('checkbox',{name:/Replace the active Aurevia session/}).check();
@@ -330,11 +506,19 @@ for(const viewport of viewports){
 
 test('notifications bell, unread state, mark one/all, and history persist',async({page})=>{
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await page.setViewportSize({width:390,height:844});
 	await page.goto('/');
 	const bell=page.getByRole('button',{name:/Notifications/});
 	await expect(bell).toContainText(/\d/);
 	await bell.click();
-	await expect(page.getByRole('dialog',{name:'Notifications'})).toBeVisible();
+	const dialog=page.getByRole('dialog',{name:'Notifications'});
+	await expect(dialog).toBeVisible();
+	const closeButton=dialog.getByRole('button',{name:'Close notifications'});
+	await expect.poll(()=>closeButton.evaluate(element=>{
+		const bounds=element.getBoundingClientRect();
+		const target=document.elementFromPoint(bounds.left+bounds.width/2,bounds.top+bounds.height/2);
+		return target===element||element.contains(target);
+	})).toBe(true);
 	const first=page.locator('.notification-row').filter({hasText:'E2E unread notification one'});
 	await expect(first).toBeVisible();
 	await first.click();
@@ -356,13 +540,13 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	let releaseModeUpdate!:()=>void;
 	const modeUpdateGate=new Promise<void>(resolve=>{releaseModeUpdate=resolve});
 	await page.route('**/api/account/mode',async route=>{await modeUpdateGate;await route.continue()});
-	await mode.selectOption('REAL');
+	await selectAccountMode(page,'REAL',{waitForCompletion:false});
 	await expect(mode).toBeDisabled();
 	releaseModeUpdate();
 	await page.unroute('**/api/account/mode');
 	await expect(mode).toHaveValue('REAL');
 	await expect(page.getByText('REAL ACCOUNT',{exact:true}).last()).toBeVisible();
-	await expect(page.locator('.wallet-balance-value')).toHaveText('0.00 USD');
+	await expect(page.locator('.wallet-balance-value')).toHaveText('Unavailable');
 	const instrumentsResponse=await page.request.get('/api/market');
 	const instruments=await instrumentsResponse.json();
 	const realOrderResponse=await page.request.post('/api/orders',{data:{instrumentId:instruments[0].id,side:'BUY',type:'MARKET',quantity:1}});
@@ -371,13 +555,13 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	await page.goto('/wallet/transactions');
 	await expect(page.locator('.account-heading .status-pill')).toContainText('REAL ACCOUNT');
 	await expect(page.getByText('No transactions yet')).toBeVisible();
-	await mode.selectOption('DEMO');
+	await selectAccountMode(page,'DEMO');
 	await expect(page.locator('.account-heading .status-pill')).toContainText('DEMO ACCOUNT');
 	await page.goto('/trade');
-	await mode.selectOption('REAL');
+	await selectAccountMode(page,'REAL');
 	await expect(page.getByText('REAL execution status',{exact:true})).toBeVisible();
 	await expect(page.getByRole('button',{name:'Place BUY order'})).toHaveCount(0);
-	await mode.selectOption('DEMO');
+	await selectAccountMode(page,'DEMO');
 	await expect(page.getByRole('button',{name:'Place BUY order'})).toBeEnabled();
 	await page.goto('/support');
 	await page.getByRole('button',{name:'Contact Admin'}).click();
@@ -386,9 +570,9 @@ test('account-mode changes refresh and isolate wallet, trade, history, and suppo
 	await page.getByLabel('Message').fill('Temporary DEMO support isolation test.');
 	await page.getByRole('button',{name:'Create support ticket'}).click();
 	await expect(page.getByRole('button').filter({hasText:subject})).toBeVisible();
-	await mode.selectOption('REAL');
+	await selectAccountMode(page,'REAL');
 	await expect(page.getByRole('button').filter({hasText:subject})).toHaveCount(0);
-	await mode.selectOption('DEMO');
+	await selectAccountMode(page,'DEMO');
 	await expect(page.getByRole('button').filter({hasText:subject})).toBeVisible();
 });
 
@@ -396,7 +580,7 @@ test('REAL provider status is admin-only and unconfirmed REAL funding cannot pos
 	await loginAs(page,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
 	expect((await page.request.get('/api/admin/providers/status')).status()).toBe(403);
 	expect((await page.request.post('/api/webhooks/broker/unconfigured',{data:{eventId:'synthetic-test-event'}})).status()).toBe(503);
-	await page.getByLabel('Account mode').selectOption('REAL');
+	await selectAccountMode(page,'REAL');
 	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
 	const instruments=await page.request.get('/api/market').then(response=>response.json());
 	const blockedOrder=await page.request.post('/api/orders',{headers:{'Idempotency-Key':randomUUID()},data:{instrumentId:instruments[0].id,side:'BUY',type:'MARKET',quantity:1}});
@@ -414,7 +598,7 @@ test('REAL provider status is admin-only and unconfirmed REAL funding cannot pos
 		expect(statusResponse.ok()).toBe(true);
 		const status=await statusResponse.json();
 		expect(status.realExecution).toMatchObject({status:'DISABLED',enabled:false,executionPathEnabled:false,adapterRegistered:false});
-		expect(status.funding).toMatchObject({status:'NOT_CONFIGURED',realDepositsCreditOnlyOnProviderConfirmation:true});
+		expect(status.funding).toMatchObject({status:'NOT_CONFIGURED',connected:false,workflowEnabled:false,realDepositsCreditOnlyOnProviderConfirmation:true});
 		expect(status.investments).toMatchObject({status:'NOT_CONFIGURED',realLifecycleActionsEnabled:false});
 		expect(status.realExecution.configuredVariables).toHaveProperty('BROKER_API_KEY');
 		expect(JSON.stringify(status)).not.toContain('://');
@@ -433,8 +617,53 @@ test('REAL provider status is admin-only and unconfirmed REAL funding cannot pos
 		expect(fundingHistory.find((row:{id:string})=>row.id===fixture('REAL_WITHDRAWAL_ID'))).toMatchObject({status:'PENDING_REVIEW',settlementReference:null,settledAt:null});
 	}finally{await adminContext.close();}
 
-	await page.getByLabel('Account mode').selectOption('DEMO');
+	await selectAccountMode(page,'DEMO');
 	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
+});
+
+test('Account Funding loads its wallet independently and clearly blocks unconfigured REAL funding',async({page})=>{
+	await page.setViewportSize({width:390,height:844});
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await selectAccountMode(page,'DEMO');
+	await page.goto('/wallet');
+	await expect(page.getByRole('heading',{name:/wallet|funding/i}).first()).toBeVisible();
+	await expect(page.locator('.wallet-balance-value')).toHaveText('5,000.00 USD');
+	await expect(page.getByLabel('Payment method')).toBeEnabled();
+	const fundingTypeButtons=page.locator('.wallet-type-switch button');
+	await fundingTypeButtons.nth(1).click();
+	await expect(fundingTypeButtons.nth(1)).toHaveAttribute('aria-pressed','true');
+	await fundingTypeButtons.nth(0).click();
+	await page.getByRole('button',{name:'Hide balances'}).click();
+	await expect(page.getByRole('button',{name:'Show balances'})).toBeVisible();
+	await page.getByRole('button',{name:'Show balances'}).click();
+	await page.route('**/api/payment-methods',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Payment methods are temporarily unavailable.'})}));
+	await page.getByRole('button',{name:'Refresh wallet history'}).click();
+	await expect(page.getByText('Loading wallet data…')).toHaveCount(0);
+	await expect(page.locator('.wallet-balance-value')).toHaveText('5,000.00 USD');
+	await expect(page.getByRole('status').filter({hasText:'Payment methods are temporarily unavailable.'})).toBeVisible();
+	await page.unroute('**/api/payment-methods');
+	await page.route('**/api/wallet',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Wallet data is temporarily unavailable.'})}));
+	await page.getByRole('button',{name:'Refresh wallet history'}).click();
+	await expect(page.getByText('Loading wallet data…')).toHaveCount(0);
+	await expect(page.locator('.wallet-balance-value')).toHaveText('Unavailable');
+	await expect(page.getByRole('alert').filter({hasText:'Wallet data is temporarily unavailable.'})).toBeVisible();
+	await expect(page.getByRole('button',{name:/Review deposit request/i})).toBeDisabled();
+	await page.unroute('**/api/wallet');
+	await page.getByRole('button',{name:'Refresh wallet history'}).click();
+	await expect(page.locator('.wallet-balance-value')).toHaveText('5,000.00 USD');
+	await selectAccountMode(page,'REAL');
+	await page.goto('/wallet');
+	const methods=await page.request.get('/api/payment-methods').then(response=>response.json());
+	expect(methods).toMatchObject({methods:[],fundingStatus:'NOT_CONFIGURED',realFundingAvailable:false});
+	await expect(page.getByRole('status').filter({hasText:'payment provider is not configured'}).first()).toBeVisible();
+	await expect(page.getByLabel('Payment method')).toHaveValue('');
+	await expect(page.getByRole('button',{name:/Review deposit request/i})).toBeDisabled();
+	await expect(page.getByRole('alert').filter({hasText:'Wallet data is temporarily unavailable'})).toHaveCount(0);
+	for(const width of [320,375,390,430,1440]){
+		await page.setViewportSize({width,height:900});
+		await expectNoHorizontalOverflow(page);
+	}
+	await selectAccountMode(page,'DEMO');
 });
 
 test('DEMO trading supports cash-backed buy and owned-unit sell execution',async({browser,page})=>{
@@ -484,12 +713,12 @@ test('DEMO trading supports cash-backed buy and owned-unit sell execution',async
 			expect(unrelatedActivity.activity).toHaveLength(0);
 		}finally{await unrelatedContext.close();}
 		expect(page.url()).toBe(marketPageUrl);
-		await page.getByLabel('Account mode').selectOption('REAL');
+		await selectAccountMode(page,'REAL');
 		await expect.poll(async()=>{
 			const response=await tradePage.request.get('/api/market/activity');
 			return (await response.json()).activity;
 		}).toHaveLength(0);
-		await page.getByLabel('Account mode').selectOption('DEMO');
+		await selectAccountMode(page,'DEMO');
 		await expectNoHorizontalOverflow(page);
 	}finally{if(!tradePage.isClosed())await tradePage.close();}
 });
@@ -535,6 +764,7 @@ test('investment requests remain mode-isolated through admin review without fake
 		const opportunity=await opportunityResponse.json();
 
 		await loginAs(page,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
+		await selectAccountMode(page,'DEMO');
 		const profile=await page.request.get('/api/profile').then(response=>response.json());
 		const initialDemoWallet=await page.request.get('/api/wallet').then(response=>response.json());
 		expect(Number(initialDemoWallet.balance)).toBe(5000);
@@ -574,8 +804,18 @@ test('investment requests remain mode-isolated through admin review without fake
 
 		const kycResponse=await adminPage.request.patch('/api/admin/users',{data:{userId:profile.id,kycStatus:'APPROVED',reviewNote:'Isolated E2E verification fixture.'}});
 		expect(kycResponse.ok()).toBeTruthy();
-		await page.getByLabel('Account mode').selectOption('REAL');
+		await selectAccountMode(page,'REAL');
 			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
+			const unavailableMethods=await page.request.get('/api/payment-methods').then(response=>response.json());
+			expect(unavailableMethods).toMatchObject({methods:[],fundingStatus:'NOT_CONFIGURED',realFundingAvailable:false});
+			const existingFunding=await page.request.get('/api/wallet').then(response=>response.json());
+			const blockedFunding=await page.request.post('/api/wallet',{headers:{'Idempotency-Key':randomUUID()},data:{type:'DEPOSIT',paymentMethodId:'not-configured',amount:10,currency:'USD'}});
+			expect(blockedFunding.status()).toBe(503);
+			expect((await blockedFunding.json()).error).toBe('REAL_FUNDING_PROVIDER_UNAVAILABLE');
+			expect(await page.request.get('/api/wallet').then(async response=>(await response.json()).transactions.length)).toBe(existingFunding.transactions.length);
+			await page.goto('/wallet');
+			await expect(page.getByRole('status').filter({hasText:'payment provider is not configured'}).first()).toBeVisible();
+			await expect(page.getByLabel('Payment method')).toHaveValue('');
 		await page.goto('/investments');
 		await expect(page.getByText(/administrator review of an identity profile, not external KYC\/AML clearance/i)).toBeVisible();
 		const realRequestResponse=await page.request.post('/api/investments',{headers:{'Idempotency-Key':randomUUID()},data:{opportunityId:opportunity.id,amount:500}});
@@ -595,7 +835,7 @@ test('investment requests remain mode-isolated through admin review without fake
 		await review(realRequest.id,'cancel');
 		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
 
-		await page.getByLabel('Account mode').selectOption('DEMO');
+		await selectAccountMode(page,'DEMO');
 			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5100);
 			await logout(page);
 		await loginAs(page,fixture('INVESTOR_EMAIL'),fixture('INVESTOR_PASSWORD'));
@@ -607,7 +847,7 @@ test('investment requests remain mode-isolated through admin review without fake
 		await page.getByRole('button',{name:'Confirm DEMO reset'}).click();
 		await expect(page.getByRole('status')).toContainText('DEMO portfolio reset to $5,000.00');
 		expect(Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
-		await page.getByLabel('Account mode').selectOption('REAL');
+		await selectAccountMode(page,'REAL');
 			await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
 		await expectNoHorizontalOverflow(page);
 	}finally{await adminContext.close();}
@@ -619,10 +859,26 @@ test('Nova escalation reaches admin and admin response appears with notification
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 	await page.goto('/support');
 	await expect(page.getByRole('heading',{name:'Nova AI',exact:true})).toBeVisible();
+	const wallet=await page.request.get('/api/wallet').then(response=>response.json());
+	const novaResponse=await page.request.post('/api/support/nova',{data:{question:'What is my wallet balance?',conversationId:randomUUID()}});
+	expect(novaResponse.status()).toBe(200);
+	expect((await novaResponse.json()).answer).toContain(String(wallet.balance));
+	const portfolioReply=await page.request.post('/api/support/nova',{data:{question:'What are my positions and order history?',conversationId:randomUUID(),userId:'another-user-id'}});
+	expect(portfolioReply.status()).toBe(200);
+	expect((await portfolioReply.json()).answer).toContain('DEMO account');
+	expect((await portfolioReply.json()).answer).toContain('order history contains');
+	const watchlistReply=await page.request.post('/api/support/nova',{data:{question:'What is my watchlist?',conversationId:randomUUID()}});
+	expect((await watchlistReply.json()).answer).toContain('cannot read a saved watchlist from the server');
+	const notificationReply=await page.request.post('/api/support/nova',{data:{question:'How many unread notifications do I have?',conversationId:randomUUID()}});
+	expect((await notificationReply.json()).answer).toMatch(/\d+ unread notification/);
+	const paymentReply=await page.request.post('/api/support/nova',{data:{question:'How do I make a deposit?',conversationId:randomUUID()}});
+	expect((await paymentReply.json()).answer).toContain('DEMO');
+	expect((await paymentReply.json()).answer).toContain('do not send real funds');
 	const supportContact=await page.request.get('/api/support/contact').then(response=>response.json());
 	if(supportContact.email)await expect(page.getByRole('link',{name:new RegExp(supportContact.email.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))})).toBeVisible();
 	else await expect(page.getByText('Direct email is not configured. Authenticated support tickets remain available.')).toBeVisible();
 	await page.getByRole('button',{name:'Contact Admin'}).click();
+	await page.getByLabel('Category').selectOption('FUNDING');
 	await page.getByLabel('Subject').fill(subject);
 	await page.getByLabel('Message').fill('Please review this disposable browser test ticket.');
 	await page.getByRole('button',{name:'Create support ticket'}).click();
@@ -632,6 +888,9 @@ test('Nova escalation reaches admin and admin response appears with notification
 	await loginAs(page,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
 	await page.goto('/admin/support');
 	await page.getByRole('button',{name:new RegExp(subject)}).click();
+	const priority=page.locator('.admin-support-ticket-controls select').nth(1);
+	await priority.selectOption('HIGH');
+	await expect(priority).toHaveValue('HIGH');
 	await page.getByLabel('Admin response').fill(reply);
 	await page.getByRole('button',{name:'Send response'}).click();
 	await expect(page.getByRole('status')).toContainText('Response sent to the user');
@@ -643,10 +902,57 @@ test('Nova escalation reaches admin and admin response appears with notification
 	const ticket=page.getByRole('button').filter({hasText:subject});
 	await ticket.click();
 	await expect(page.getByText(reply)).toBeVisible();
+	const conversationId=await page.request.get('/api/support').then(async response=>{
+		expect(response.ok()).toBe(true);
+		const tickets=await response.json();
+		return tickets.find((item:{subject:string})=>item.subject===subject).id as string;
+	});
+	await logout(page);
+	await loginAs(page,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+	const closed=await page.request.patch('/api/admin/support',{data:{action:'status',conversationId,status:'CLOSED'}});
+	expect(closed.ok()).toBe(true);
+	await logout(page);
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await page.goto('/support');
+	await page.getByRole('button').filter({hasText:subject}).click();
+	await expect(page.getByText(/CLOSED/)).toBeVisible();
+	await expect(page.getByRole('textbox',{name:'Reply to support ticket'})).toHaveCount(0);
+	const replyToClosed=await page.request.post('/api/support',{data:{action:'reply',conversationId,message:'Reply to a closed ticket.'}});
+	expect(replyToClosed.status()).toBe(409);
+});
+
+test('tier requests require an administrator decision and never enable real execution',async({page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await page.goto('/tier');
+	await expect(page.getByRole('heading',{name:'Tier and verification'})).toBeVisible();
+	const state=await page.request.get('/api/tier-requests').then(response=>response.json());
+	expect(state.currentTier).toBe(1);
+	await page.getByRole('button',{name:'Request Tier 2 review'}).click();
+	await expect(page.getByRole('status')).toContainText('waiting for administrator review');
+	const request=await page.request.get('/api/tier-requests').then(response=>response.json());
+	const requestId=request.requests[0].id as string;
+	expect(request.requests[0].status).toBe('PENDING_REVIEW');
+	const denied=await page.request.patch('/api/admin/tier-requests',{data:{id:requestId,status:'APPROVED',reason:'Should be denied for a user.'}});
+	expect(denied.status()).toBe(403);
+	await logout(page);
+	await loginAs(page,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+	await page.goto('/admin/tiers');
+	await expect(page.getByRole('heading',{name:'Tier review queue'})).toBeVisible();
+	await page.getByRole('button').filter({hasText:'Temporary E2E User'}).click();
+	await page.getByLabel('Required review reason').fill('Isolated browser test approval.');
+	await page.getByRole('button',{name:'Approve Tier 2'}).click();
+	await expect(page.getByRole('status')).toContainText('Tier request approved');
+	await logout(page);
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	const updated=await page.request.get('/api/tier-requests').then(response=>response.json());
+	expect(updated.currentTier).toBe(2);
+	await page.goto('/tier');
+	await expect(page.getByText(/REAL execution remains separately controlled/i)).toBeVisible();
 });
 
 test('administrator email sign-in persists through refresh and logout removes admin access',async({page})=>{
 	await page.goto('/admin/login');
+	await waitForStartup(page);
 	await page.getByLabel('Admin username').fill(fixture('ADMIN_EMAIL'));
 	await page.getByLabel('Password',{exact:true}).fill(fixture('ADMIN_PASSWORD'));
 	await page.getByRole('checkbox',{name:/Replace another active Aurevia session/}).check();
@@ -665,6 +971,59 @@ test('a normal customer cannot access the administrator dashboard',async({page})
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 	await page.goto('/admin');
 	await expect(page).toHaveURL(/\/login/);
+});
+
+test('Nova activity is redacted and visible only to administrators',async({page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await selectAccountMode(page,'DEMO');
+	const userId=await page.request.get('/api/auth/session').then(async response=>(await response.json()).user.id as string);
+	const question='What is my balance? e2e-private-question-marker';
+	const novaResponse=await page.request.post('/api/support/nova',{data:{question}});
+	expect(novaResponse.status()).toBe(200);
+	const calculation=await page.request.post('/api/support/nova',{data:{question:'calculate position size: risk $100, entry $50, stop $45, target $60, long'}});
+	expect(calculation.status()).toBe(200);
+	expect(await calculation.json()).toMatchObject({answer:expect.stringContaining('20 units')});
+	const forbidden=await page.request.get('/api/admin/nova-activity');
+	expect(forbidden.status()).toBe(403);
+
+	const symbol=fixture('INSTRUMENT_A');
+	const beforeOrders=await page.request.get('/api/orders').then(response=>response.json() as Promise<Array<{id:string}>>);
+	await page.goto('/support');
+	await page.getByLabel('Ask Nova AI').fill(`prepare demo order: buy 2 ${symbol}`);
+	await page.getByRole('button',{name:'Send question'}).click();
+	const confirmOrder=page.getByRole('button',{name:'Confirm DEMO order'});
+	await expect(confirmOrder).toBeVisible();
+	const previewOrders=await page.request.get('/api/orders').then(response=>response.json() as Promise<Array<{id:string}>>);
+	expect(previewOrders.map(order=>order.id)).toEqual(beforeOrders.map(order=>order.id));
+	await confirmOrder.click();
+	await expect(page.getByText(/Your explicitly confirmed DEMO order/)).toBeVisible();
+	const ordersResponse=await page.request.get('/api/orders');
+	const afterOrders=await ordersResponse.json() as Array<{id:string;instrument:{symbol:string};side:string;quantity:string;status:string}>;
+	const confirmation=await page.locator('.nova-message').last().innerText();
+	const orderId=confirmation.match(/Order reference: ([A-Za-z0-9]+)/)?.[1];
+	const confirmed=afterOrders.find(order=>order.id===orderId);
+	expect(confirmed).toBeTruthy();
+	expect(confirmed).toMatchObject({instrument:{symbol},side:'BUY',status:'FILLED'});
+	expect(Number(confirmed?.quantity)).toBe(2);
+	const unsupportedOrder=await page.request.post('/api/support/nova',{data:{question:`prepare limit order: buy 1 ${symbol} at $10`}});
+	expect(unsupportedOrder.status()).toBe(200);
+	expect(await unsupportedOrder.json()).toMatchObject({answer:expect.stringContaining('market-order previews only')});
+	await selectAccountMode(page,'REAL');
+	const realDraft=await page.request.post('/api/support/nova',{data:{question:`prepare demo order: buy 1 ${symbol}`}});
+	expect(realDraft.status()).toBe(200);
+	expect(await realDraft.json()).toMatchObject({answer:expect.stringContaining('REAL trading is not available through Nova')});
+	await selectAccountMode(page,'DEMO');
+
+	await logout(page);
+	await loginAs(page,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+	const report=await page.request.get('/api/admin/nova-activity');
+	expect(report.status()).toBe(200);
+	const events=await report.json();
+	const event=events.find((item:{userId:string;eventTypes:string[]})=>item.userId===userId&&item.eventTypes.includes('WALLET_BALANCE_LOOKUP'));
+	expect(event).toBeTruthy();
+	expect(events.some((item:{userId:string;eventTypes:string[]})=>item.userId===userId&&item.eventTypes.includes('TRADE_PLAN_CALCULATED'))).toBe(true);
+	expect(events.some((item:{userId:string;eventTypes:string[]})=>item.userId===userId&&item.eventTypes.includes('DEMO_ORDER_PREPARED'))).toBe(true);
+	expect(JSON.stringify(events)).not.toContain('e2e-private-question-marker');
 });
 
 test('admin pages render for authenticated administrator at requested viewports',async({page})=>{
@@ -740,9 +1099,9 @@ test('DEMO order idempotency prevents duplicate fills and user history stays iso
 
 test('wallet deposit and withdrawal requests remain pending and idempotent without posting money',async({browser,page})=>{
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
-	await page.getByLabel('Account mode').selectOption('DEMO');
+	await selectAccountMode(page,'DEMO');
 	const startingBalance=Number((await page.request.get('/api/wallet').then(response=>response.json())).balance);
-	const methods=await page.request.get('/api/payment-methods').then(response=>response.json());
+	const methods=await page.request.get('/api/payment-methods').then(async response=>(await response.json()).methods);
 	expect(methods.length).toBeGreaterThan(0);
 	const method=methods[0];
 
@@ -814,9 +1173,18 @@ test('KYC document access is owner-scoped and private Storage fails closed witho
 
 test('profile settings persist for the owner and remain inaccessible to signed-out clients',async({browser,page})=>{
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	const initialProfile=await page.request.get('/api/profile').then(response=>response.json());
+	expect(initialProfile).toMatchObject({twoFactorEnabled:false,twoFactorAvailable:false});
+	const enableTwoFactor=await page.request.patch('/api/profile',{data:{name:'Temporary E2E User',country:'Test',twoFactorEnabled:true}});
+	expect(enableTwoFactor.status()).toBe(409);
+	expect((await enableTwoFactor.json()).error).toContain('Two-factor authentication is unavailable');
 	const updated=await page.request.patch('/api/profile',{data:{name:'Temporary Settings Update',country:'Test Country',address:'Isolated test address',twoFactorEnabled:false}});
 	expect(updated.ok()).toBeTruthy();
-	expect((await page.request.get('/api/profile').then(response=>response.json())).name).toBe('Temporary Settings Update');
+	expect(await page.request.get('/api/profile').then(response=>response.json())).toMatchObject({name:'Temporary Settings Update',twoFactorEnabled:false,twoFactorAvailable:false});
+	await page.goto('/settings');
+	await page.getByRole('tab',{name:'Security'}).click();
+	await expect(page.getByText('Unavailable — this account is not protected by two-factor authentication. Enrollment and login challenges are not configured.')).toBeVisible();
+	await expect(page.getByText('Not enabled',{exact:true})).toBeVisible();
 	const signedOutContext=await browser.newContext();
 	try{
 		const signedOutPage=await signedOutContext.newPage();

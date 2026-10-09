@@ -1,15 +1,17 @@
 'use client';
 
-import {useCallback,useEffect,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import type {ReactNode} from 'react';
 import {useSession} from 'next-auth/react';
 import AureviaStartup from '@/components/AureviaStartup';
 
 const startupKey='aurevia-startup-complete';
 const exitDurationMs=180;
+const maximumStartupWaitMs=1200;
 
 export default function StartupShell({children}:{children:ReactNode}){
 	const {status}=useSession();
+	const contentRef=useRef<HTMLDivElement>(null);
 	const [ready,setReady]=useState(false);
 	const [showStartup,setShowStartup]=useState(true);
 	const [isExiting,setIsExiting]=useState(false);
@@ -31,18 +33,28 @@ export default function StartupShell({children}:{children:ReactNode}){
 	},[]);
 
 	useEffect(()=>{
-		if(!ready||!showStartup||status==='loading')return;
+		contentRef.current?.toggleAttribute('inert',showStartup);
+	},[showStartup]);
+
+	useEffect(()=>{
+		if(!ready||!showStartup)return;
 		if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){
 			markStartupComplete();
 			return;
 		}
-		setIsExiting(true);
-		const timer=window.setTimeout(markStartupComplete,exitDurationMs);
-		return()=>window.clearTimeout(timer);
+		let exitTimer:number|undefined;
+		const timer=window.setTimeout(()=>{
+			setIsExiting(true);
+			exitTimer=window.setTimeout(markStartupComplete,exitDurationMs);
+		},status==='loading'?maximumStartupWaitMs:0);
+		return()=>{
+			window.clearTimeout(timer);
+			if(exitTimer!==undefined)window.clearTimeout(exitTimer);
+		};
 	},[markStartupComplete,ready,showStartup,status]);
 
 	return <div className="app-shell">
 		<div className="scene-depth" aria-hidden="true"><div className="scene-orb scene-orb-one"/><div className="scene-orb scene-orb-two"/><div className="scene-orb scene-orb-three"/></div>
-		<div className="scene-content"><div aria-hidden={showStartup} inert={showStartup}>{children}</div>{showStartup&&<AureviaStartup isExiting={isExiting}/>}</div>
+		<div className="scene-content"><div ref={contentRef} aria-hidden={showStartup}>{children}</div>{showStartup&&<AureviaStartup isExiting={isExiting}/>}</div>
 	</div>;
 }

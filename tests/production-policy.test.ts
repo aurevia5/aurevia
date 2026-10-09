@@ -17,6 +17,13 @@ describe('production account policy',()=>{
     expect(getAccountTier({accountMode:AccountMode.REAL,kycStatus:KycStatus.APPROVED,verificationDocuments:1}).label).toBe('TIER 2');
   });
 
+  it('honors an administrator-approved tier without enabling real trading',()=>{
+    const approved=getAccountTier({accountMode:AccountMode.DEMO,kycStatus:KycStatus.PENDING,verificationDocuments:0,approvedTier:2});
+    expect(approved.label).toBe('TIER 2');
+    expect(approved.eligibleForRealTrading).toBe(false);
+    expect(approved.verified).toBe(false);
+  });
+
   it('rejects withdrawal when disabled or account restrictions apply',()=>{
     expect(()=>validateWithdrawal({balance:'100',pending:'10',amount:'101',withdrawalEnabled:true,kycStatus:KycStatus.APPROVED})).toThrow('INSUFFICIENT_BALANCE');
     expect(()=>validateWithdrawal({balance:'100',pending:'0',amount:'20',withdrawalEnabled:false,kycStatus:KycStatus.APPROVED})).toThrow('WITHDRAWAL_DISABLED');

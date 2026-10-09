@@ -4,7 +4,7 @@ import {getExecutionProviderStatus} from '@/lib/providers/registry';
 import {getIdentityComplianceProvider} from '@/lib/providers/identity-provider';
 import {getLiveMarketProviderStatus} from '@/lib/live-market';
 import {getServerConfiguration} from '@/lib/config/env';
-import {getFundingProvider} from '@/lib/providers/funding-provider';
+import {getFundingProviderReadiness} from '@/lib/providers/funding-provider';
 
 export const dynamic='force-dynamic';
 
@@ -19,7 +19,7 @@ export async function GET(){
 		const execution=await getExecutionProviderStatus();
 		const marketProvider=await getLiveMarketProviderStatus(getServerConfiguration().marketData.finnhubApiKey);
 		const identityProvider=getIdentityComplianceProvider();
-		const fundingProvider=getFundingProvider();
+		const funding=await getFundingProviderReadiness();
 		return NextResponse.json({
 			checkedAt:new Date().toISOString(),
 			realExecution:{
@@ -28,7 +28,7 @@ export async function GET(){
 				provider:safeProviderLabel(execution.providerName),
 				providerMode:execution.providerMode,
 				adapterRegistered:execution.adapterRegistered,
-				configuredVariables:execution.configuredVariables,
+				configuredVariables:{...execution.configuredVariables,BROKER_API_KEY:Boolean(getServerConfiguration().execution.brokerApiKey)},
 				missingConfiguration:execution.missingConfiguration,
 				executionPathEnabled:execution.state==='CONNECTED',
 				alpacaTrading:execution.alpacaTrading,
@@ -46,8 +46,11 @@ export async function GET(){
 				usedForOrderExecution:false,
 			},
 			funding:{
-				status:fundingProvider?'CONFIGURED':'NOT_CONFIGURED',
-				provider:safeProviderLabel(fundingProvider?.name),
+				status:funding.status,
+				provider:safeProviderLabel(funding.providerName),
+				connected:funding.connected,
+				workflowEnabled:funding.workflowEnabled,
+				checkedAt:funding.checkedAt,
 				realDepositsCreditOnlyOnProviderConfirmation:true,
 			},
 			investments:{

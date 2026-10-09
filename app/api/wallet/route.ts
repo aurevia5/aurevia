@@ -9,6 +9,7 @@ import {createNotification} from '@/lib/notifications';
 import {notifyActiveAdmins} from '@/lib/notifications';
 import {sendSupportEmail} from '@/lib/email';
 import {validateWithdrawal} from '@/lib/production-policy';
+import {getFundingProviderReadiness} from '@/lib/providers/funding-provider';
 
 const schema=z.object({
 	type:z.nativeEnum(FundingType),
@@ -34,7 +35,7 @@ export async function GET(){
 			db.fundingRequest.findMany({where:{userId:user.id,accountMode:user.accountMode},orderBy:{createdAt:'desc'},take:100,include:{paymentMethod:{select:{id:true,name:true}}}}),
 		]);
 		const balances=await Promise.all(accounts.map(async account=>({currency:account.currency,balance:await balance(db,account.id)})));
-		const usdBalance=balances.find(item=>item.currency==='USD')?.balance??new Prisma.Decimal(0);
+		const usdBalance=balances.find(item=>item.currency==='USD')?.balance??null;
 		const safeTransactions=transactions.map(({receiptKey,...transaction})=>({...transaction,hasReceipt:!!receiptKey}));
 		return NextResponse.json(jsonSafe({accountMode:user.accountMode,balance:usdBalance,balances,transactions:safeTransactions}),{headers:{'Cache-Control':'private, no-store'}});
 	}catch(error){
@@ -51,6 +52,10 @@ export async function POST(req:Request){
 		const parsed=schema.parse(await req.json());
 		const idempotencyKey=req.headers.get('Idempotency-Key');
 		if(!idempotencyKey||idempotencyKey.length>128)return NextResponse.json({error:'A valid idempotency key is required.'},{status:400});
+		if(user.accountMode==='REAL'){
+			const funding=await getFundingProviderReadiness();
+			if(!funding.workflowEnabled)return NextResponse.json({error:'REAL_FUNDING_PROVIDER_UNAVAILABLE'},{status:503,headers:{'Cache-Control':'private, no-store'}});
+		}
 		const currency=parsed.currency.toUpperCase();
 
 		const result=await db.$transaction(async tx=>{

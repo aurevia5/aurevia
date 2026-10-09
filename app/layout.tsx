@@ -12,5 +12,5 @@ export const metadata={title:'Aurevia Invest',description:'Aurevia Invest — di
 export default function RootLayout({children}:{children:ReactNode}){
   const initialLocale=normalizeLocale(cookies().get('aurevia-locale')?.value ?? null);
   const direction=initialLocale==='ar'?'rtl':'ltr';
-  return <html lang={initialLocale} dir={direction}><body><Script id="aurevia-startup-state" strategy="beforeInteractive">{`try{if(sessionStorage.getItem('aurevia-startup-complete')==='1')document.documentElement.dataset.aureviaStartupComplete='true'}catch{}`}</Script><Providers initialLocale={initialLocale}><StartupShell>{children}</StartupShell></Providers></body></html>;
+  return <html lang={initialLocale} dir={direction} suppressHydrationWarning><body><Script id="aurevia-startup-state" strategy="beforeInteractive">{`try{if(sessionStorage.getItem('aurevia-startup-complete')==='1')document.documentElement.dataset.aureviaStartupComplete='true'}catch{}`}</Script><Providers initialLocale={initialLocale}><StartupShell>{children}</StartupShell></Providers></body></html>;
 }

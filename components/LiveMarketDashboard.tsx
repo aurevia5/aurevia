@@ -2,11 +2,12 @@
 
 import {useEffect,useState} from 'react';
 import {QueryClient,QueryClientProvider,useQuery} from '@tanstack/react-query';
+import {useSession} from 'next-auth/react';
 import {Activity,ArrowDown,ArrowLeftRight,ArrowUp,Check,ChevronDown,ChevronLeft,ChevronRight,GripVertical,ListPlus,Plus,RefreshCw,Search,Star,Trash2,X} from 'lucide-react';
 import Nav from '@/components/Nav';
 import LivePriceChart from '@/components/LivePriceChart';
 import {COMPARISON_SYMBOLS,DEFAULT_WATCHLIST,MARKET_ASSETS,TIMEFRAMES,getMarketAsset,type MarketCandle,type MarketQuote,type TimeframeId} from '@/lib/live-market';
-import {getActiveWatchlist,useMarketWatchlists} from '@/lib/market-watchlists';
+import {getActiveWatchlist,setMarketWatchlistUserScope,useMarketWatchlists} from '@/lib/market-watchlists';
 
 type QuoteError={asset:NonNullable<ReturnType<typeof getMarketAsset>>;error:string};
 type QuotesResponse={quotes:Array<MarketQuote|QuoteError>;source:string};
@@ -21,6 +22,7 @@ export default function LiveMarketDashboard(){
 }
 
 function LiveMarketDashboardContent(){
+  const {data:session,status:sessionStatus}=useSession();
   const watchlists=useMarketWatchlists(state=>state.watchlists);
   const activeWatchlistId=useMarketWatchlists(state=>state.activeWatchlistId);
   const selectedSymbol=useMarketWatchlists(state=>state.selectedSymbol);
@@ -38,6 +40,8 @@ function LiveMarketDashboardContent(){
   const [newListName,setNewListName]=useState('');
   const [symbolSearch,setSymbolSearch]=useState('');
   const [draggedSymbol,setDraggedSymbol]=useState('');
+  const [watchlistScopeReady,setWatchlistScopeReady]=useState(false);
+  const [watchlistScopeError,setWatchlistScopeError]=useState('');
   const activeList=watchlists.find(list=>list.id===activeWatchlistId)||watchlists[0];
   const selectedAsset=getMarketAsset(selectedSymbol)||getMarketAsset('DJI')!;
   const quoteIds=Array.from(new Set([...activeList.symbols,...DEFAULT_WATCHLIST,...COMPARISON_SYMBOLS,selectedAsset.id]));
@@ -55,6 +59,18 @@ function LiveMarketDashboardContent(){
   const error=historyQuery.error instanceof Error?historyQuery.error.message:selectedQuery.error instanceof Error?selectedQuery.error.message:'';
 
   useEffect(()=>{if(!getMarketAsset(selectedSymbol))selectSymbol('DJI')},[selectedSymbol,selectSymbol]);
+  useEffect(()=>{
+    if(sessionStatus==='loading')return;
+    let active=true;
+    setWatchlistScopeReady(false);
+    setWatchlistScopeError('');
+    void setMarketWatchlistUserScope(session?.user?.id||null).then(()=>{
+      if(active)setWatchlistScopeReady(true);
+    }).catch(()=>{
+      if(active){setWatchlistScopeError('Unable to restore this account’s watchlists.');setWatchlistScopeReady(true);}
+    });
+    return()=>{active=false};
+  },[session?.user?.id,sessionStatus]);
 
   function submitWatchlist(event:React.FormEvent<HTMLFormElement>){
     event.preventDefault();
@@ -94,8 +110,9 @@ function LiveMarketDashboardContent(){
     </section>
 
     <div className={`live-market-grid ${sidebarOpen?'sidebar-mobile-open':''}`}>
-      <aside className="live-sidebar" aria-label="Listas de seguimiento">
+      <aside className="live-sidebar" aria-label="Listas de seguimiento" aria-busy={!watchlistScopeReady}>
         <div className="live-sidebar-heading"><div><span>PORTAFOLIO</span><h2>Mi lista de control</h2></div><button className="live-icon-button live-mobile-close" type="button" aria-label="Cerrar listas" onClick={()=>setSidebarOpen(false)}><X size={17}/></button></div>
+        {watchlistScopeError&&<div className="live-data-alert" role="alert">{watchlistScopeError}</div>}
         <div className="live-watchlist-controls">
           <label className="sr-only" htmlFor="watchlist-select">Lista de seguimiento</label>
           <select id="watchlist-select" value={activeList.id} onChange={event=>setActiveWatchlist(event.target.value)}>
@@ -122,7 +139,7 @@ function LiveMarketDashboardContent(){
         </div>
 
         <div className="live-suggestions"><div className="live-sidebar-heading"><div><span>DESCUBRIR</span><h2>Sugerencias para ti</h2></div><Star size={15}/></div>{['NVDA','AAPL','MSFT','TSLA'].filter(id=>!activeList.symbols.includes(id)).map(id=>{const asset=getMarketAsset(id)!;return <div className="live-suggestion" key={id}><button type="button" onClick={()=>selectSymbol(id)}><b>{id}</b><small>{asset.name}</small></button><button className="live-add-suggestion" type="button" aria-label={`Añadir ${id} a la lista`} onClick={()=>addSymbol(id)}><Plus size={14}/></button></div>})}</div>
-        <div className="live-sidebar-foot">Arrastra activos para reordenar<br/>Tus listas se guardan en este dispositivo.</div>
+        <div className="live-sidebar-foot">Arrastra activos para reordenar<br/>Tus listas se guardan por cuenta en este dispositivo.</div>
       </aside>
 
       <section className="live-main-column">

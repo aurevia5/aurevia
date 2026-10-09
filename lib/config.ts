@@ -3,8 +3,8 @@ import {getServerConfiguration} from './config/env';
 export function getSupportContact(){
 	const config=getServerConfiguration().smtp;
 	return {
-		email:config.supportEmail,
-		complaintsEmail:config.complaintsEmail,
+		email:config.supportEmail||'aureviainvest@gmail.com',
+		complaintsEmail:config.complaintsEmail||config.supportEmail||'aureviainvest@gmail.com',
 		phone:config.supportPhone,
 	};
 }

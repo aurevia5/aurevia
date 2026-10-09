@@ -1,6 +1,6 @@
 'use client';
 
-import {FormEvent,useCallback,useEffect,useState} from 'react';
+import {FormEvent,useCallback,useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
 import {useSession} from 'next-auth/react';
 import {Bot,ChevronDown,Send,ShieldAlert,TicketCheck} from 'lucide-react';
@@ -10,6 +10,7 @@ type ChatMessage={speaker:'user'|'nova';text:string};
 type Conversation={id:string;subject:string;status:string;category:string;isComplaint:boolean;hasAttachment:boolean;createdAt:string;lastMessageAt:string;transaction?:{id:string;type:string;status:string;amount:string;currency:string}|null;messages:Array<{id:string;authorType:string;body:string;createdAt:string}>};
 type Transaction={id:string;type:string;status:string;amount:string;currency:string};
 type SupportContact={email:string;complaintsEmail:string;phone:string};
+type DemoOrderDraft={instrumentId:string;symbol:string;side:'BUY'|'SELL';type:'MARKET';quantity:number;expectedPrice:number;observedAt:string;estimatedValue:number;accountMode:'DEMO';idempotencyKey:string};
 
 function answerFor(question:string,mode:'DEMO'|'REAL'){
 	const text=question.toLowerCase();
@@ -27,6 +28,7 @@ export default function SupportExperience(){
 	const {data,status}=useSession();
 	const mode=data?.user?.accountMode||'DEMO';
 	const [messages,setMessages]=useState<ChatMessage[]>([{speaker:'nova',text:'Hello, I’m Nova AI, Aurevia’s platform support assistant. I can explain platform workflows, but I cannot verify payments or alter accounts.'}]);
+	const conversationId=useRef<string|undefined>(undefined);
 	const [question,setQuestion]=useState('');
 	const [conversations,setConversations]=useState<Conversation[]>([]);
 	const [transactions,setTransactions]=useState<Transaction[]>([]);
@@ -45,6 +47,7 @@ export default function SupportExperience(){
 	const [historyLoading,setHistoryLoading]=useState(false);
 	const [busy,setBusy]=useState(false);
 	const [contact,setContact]=useState<SupportContact>({email:'',complaintsEmail:'',phone:''});
+	const [orderDraft,setOrderDraft]=useState<DemoOrderDraft|null>(null);
 
 	useEffect(()=>{let active=true;fetch('/api/support/contact').then(response=>response.ok?response.json():null).then(result=>{if(active&&result)setContact(result)}).catch(()=>{});return()=>{active=false}},[]);
 
@@ -62,13 +65,33 @@ export default function SupportExperience(){
 	useEffect(()=>{void load(true)},[load,mode]);
 
 	const selected=conversations.find(item=>item.id===selectedConversation);
-	function ask(event:FormEvent<HTMLFormElement>){event.preventDefault();const text=question.trim();if(!text)return;setMessages(current=>[...current,{speaker:'user',text},{speaker:'nova',text:answerFor(text,mode)}]);setQuestion('')}
+	async function ask(event:FormEvent<HTMLFormElement>){event.preventDefault();const text=question.trim();if(!text||busy)return;conversationId.current??=crypto.randomUUID();setBusy(true);setError('');setOrderDraft(null);setQuestion('');setMessages(current=>[...current,{speaker:'user',text}]);try{const response=await fetch('/api/support/nova',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:text,conversationId:conversationId.current})});const result=await response.json();if(!response.ok)throw new Error(result.error||'Nova is temporarily unavailable.');setMessages(current=>[...current,{speaker:'nova',text:result.answer}]);setOrderDraft(result.orderDraft?{...result.orderDraft,idempotencyKey:crypto.randomUUID()}:null);}catch(exception){setError(exception instanceof Error?exception.message:'Nova is temporarily unavailable.');setMessages(current=>[...current,{speaker:'nova',text:answerFor(text,mode)}]);}finally{setBusy(false)}}
+
+	async function confirmDemoOrder(){
+		if(!orderDraft||busy||mode!=='DEMO')return;
+		setBusy(true);setError('');setNotice('');
+		try{
+			const response=await fetch('/api/orders',{method:'POST',headers:{'content-type':'application/json','Idempotency-Key':orderDraft.idempotencyKey},body:JSON.stringify({
+				instrumentId:orderDraft.instrumentId,
+				side:orderDraft.side,
+				type:orderDraft.type,
+				quantity:orderDraft.quantity,
+				expectedPrice:orderDraft.expectedPrice,
+				observedAt:orderDraft.observedAt,
+			})});
+			const result=await response.json();
+			if(!response.ok)throw new Error(result.error||'The DEMO order could not be submitted.');
+			setMessages(current=>[...current,{speaker:'nova',text:`Your explicitly confirmed DEMO order was accepted by the simulated trading system. Recorded status: ${String(result.status||'unknown').replaceAll('_',' ').toLowerCase()}. Order reference: ${result.id}. This is not a REAL trade.`}]);
+			setOrderDraft(null);
+		}catch(exception){setError(exception instanceof Error?exception.message:'The DEMO order could not be submitted.');}
+		finally{setBusy(false)}
+	}
 
 	async function escalate(event:FormEvent<HTMLFormElement>){
 		event.preventDefault();if(status!=='authenticated'||busy)return;
 		setBusy(true);setError('');setNotice('');
 		try{
-			const body=new FormData();body.append('action',isComplaint?'complaint':'ticket');body.append('category',isComplaint?complaintCategory:'GENERAL');body.append('subject',subject);body.append('message',ticketMessage);if(transactionId)body.append('transactionId',transactionId);if(ticketAttachment)body.append('file',ticketAttachment);
+			const body=new FormData();body.append('action',isComplaint?'complaint':'ticket');body.append('category',complaintCategory);body.append('subject',subject);body.append('message',ticketMessage);if(transactionId)body.append('transactionId',transactionId);if(ticketAttachment)body.append('file',ticketAttachment);
 			const response=await fetch('/api/support/ticket',{method:'POST',body});
 			const result=await response.json();if(!response.ok)throw new Error(result.error||'Unable to create support ticket.');
 			const delivery=result.emailDelivery==='sent'?'Support email sent.':result.emailDelivery==='failed'?'Email delivery failed; the ticket is still available in the admin queue.':'Email is not configured; the ticket is still available in the admin queue.';
@@ -98,10 +121,11 @@ export default function SupportExperience(){
 		<div className="account-content-grid support-layout">
 			<section className="account-panel card p-5"><div className="account-panel-title"><div><h2><Bot size={17} className="gold"/> Nova AI assistant</h2><p className="account-panel-subtitle">Deterministic help content · no external AI service connected</p></div><div className="flex flex-wrap gap-2"><button type="button" className="text-link" onClick={()=>{setIsComplaint(false);setShowEscalation(!showEscalation)}}><ShieldAlert size={15}/> Contact Admin</button><button type="button" className="text-link" onClick={()=>{setIsComplaint(true);setShowEscalation(true)}}>File complaint</button></div></div>
 				<div className="nova-thread" aria-live="polite">{messages.map((message,index)=><div className={`nova-message ${message.speaker==='user'?'is-user':''}`} key={`${message.speaker}-${index}`}><span>{message.speaker==='nova'?'NOVA AI':'YOU'}</span><p>{message.text}</p></div>)}</div>
+				{orderDraft&&<div className="account-callout mt-3" role="group" aria-label="DEMO order confirmation"><div><b>DEMO order preview</b><p className="mt-1 text-sm">{orderDraft.side} {orderDraft.quantity} {orderDraft.symbol} · MARKET · simulated reference {orderDraft.expectedPrice} · estimated notional {orderDraft.estimatedValue}</p><p className="mt-1 text-xs muted">This sends a simulated order through the existing DEMO API only. The reference price may change; the API revalidates the order. No REAL order will be sent.</p></div><button className="btn bg-gold text-black" type="button" disabled={busy||mode!=='DEMO'} onClick={()=>void confirmDemoOrder()}>{busy?'Submitting…':'Confirm DEMO order'}</button><button className="btn bg-white/5" type="button" disabled={busy} onClick={()=>setOrderDraft(null)}>Cancel</button></div>}
 				<form onSubmit={ask} className="nova-input-row"><input className="input" value={question} maxLength={800} onChange={event=>setQuestion(event.target.value)} placeholder="Ask about accounts, funding, or verification" aria-label="Ask Nova AI"/><button className="btn bg-gold text-black" type="submit" aria-label="Send question" disabled={!question.trim()}><Send size={15}/></button></form>
 				<p className="mt-3 text-xs leading-5 muted">Nova cannot approve transactions, change balances, bypass verification, or confirm receipt of funds.</p>
 				{showEscalation&&<form onSubmit={escalate} className="account-form-grid mt-5 border-t border-white/10 pt-5"><div className="md:col-span-2"><h3 className="text-sm font-semibold">{isComplaint?'File a complaint':'Escalate to Admin'}</h3><p className="mt-1 text-xs muted">Your authenticated user ID and active account mode are attached by the server.</p></div>{status==='authenticated'?<>
-					{isComplaint&&<label className="account-label">Category<select className="input" value={complaintCategory} onChange={event=>setComplaintCategory(event.target.value as typeof complaintCategory)}><option value="GENERAL">General</option><option value="FUNDING">Funding</option><option value="WITHDRAWAL">Withdrawal</option><option value="ACCOUNT">Account</option><option value="SECURITY">Security</option></select></label>}
+					<label className="account-label">Category<select className="input" value={complaintCategory} onChange={event=>setComplaintCategory(event.target.value as typeof complaintCategory)}><option value="GENERAL">General</option><option value="FUNDING">Funding</option><option value="WITHDRAWAL">Withdrawal</option><option value="ACCOUNT">Account</option><option value="SECURITY">Security</option></select></label>
 					<label className="account-label">Subject<input className="input" required minLength={3} maxLength={120} value={subject} onChange={event=>setSubject(event.target.value)}/></label>
 					<label className="account-label">Related transaction (optional)<select className="input" value={transactionId} onChange={event=>setTransactionId(event.target.value)}><option value="">No transaction selected</option>{transactions.map(transaction=><option key={transaction.id} value={transaction.id}>{transaction.type} · {transaction.id} · {transaction.status}</option>)}</select></label>
 					<label className="account-label md:col-span-2">Message<textarea className="input min-h-24" required minLength={3} maxLength={4000} value={ticketMessage} onChange={event=>setTicketMessage(event.target.value)}/></label>
@@ -110,8 +134,8 @@ export default function SupportExperience(){
 				</>:<p className="muted md:col-span-2">Sign in to create a ticket tied to your account. <Link className="gold" href="/login">Sign in</Link></p>}</form>}
 				{notice&&<p className="mt-3 text-sm text-profit" role="status">{notice}</p>}{error&&<p className="mt-3 text-sm text-loss" role="alert">{error}</p>}
 			</section>
-			<aside className="account-panel card p-5"><div className="account-panel-title"><div><h2><TicketCheck size={17} className="gold"/> Your support tickets</h2><p className="account-panel-subtitle">Private to your account and selected mode</p></div></div>{status!=='authenticated'?<p className="account-empty">Sign in to view your support history.</p>:historyLoading?<p className="account-empty" role="status">Loading support tickets…</p>:historyError?<div className="account-empty transaction-history-error" role="alert"><span>{historyError}</span><button type="button" className="text-link" onClick={()=>void load(true)}>Retry</button></div>:conversations.length?<div className="support-ticket-list">{conversations.map(conversation=><article className="support-ticket" key={conversation.id}><button type="button" className="support-ticket-toggle" aria-expanded={selectedConversation===conversation.id} onClick={()=>setSelectedConversation(selectedConversation===conversation.id?'':conversation.id)}><span>{conversation.subject}</span><small>{conversation.isComplaint?'Complaint · ':''}{conversation.status.replaceAll('_',' ')} · {new Date(conversation.lastMessageAt||conversation.createdAt).toLocaleString()}</small>{conversation.transaction&&<small>Reference {conversation.transaction.id}</small>}<ChevronDown size={14}/></button>{selectedConversation===conversation.id&&<div className="support-message-list"><div className="support-message-history">{conversation.messages.map(item=><div key={item.id}><b>{item.authorType.replaceAll('_',' ')}</b><p>{item.body}</p></div>)}</div>{conversation.hasAttachment&&<button type="button" className="text-link" onClick={()=>void openAttachment(conversation.id)}>View private attachment</button>}{conversation.status!=='RESOLVED'&&<form onSubmit={sendReply} className="support-reply"><input className="input" value={reply} onChange={event=>setReply(event.target.value)} maxLength={4000} placeholder="Reply to support ticket" aria-label="Reply to support ticket"/><button className="btn bg-gold text-black" type="submit" disabled={busy||!reply.trim()} aria-label="Send reply"><Send size={14}/></button></form>}</div>}</article>)}</div>:<p className="account-empty">No support tickets yet.</p>}</aside>
-			<section className="account-panel card p-5 support-contact-panel"><div className="account-panel-title"><div><h2>Contact support</h2><p className="account-panel-subtitle">Reach the support team directly or create a ticket for admin review.</p></div><ShieldAlert size={18} className="gold"/></div>{contact.email?<a href={`mailto:${contact.email}`}>{contact.email}</a>:<p className="text-sm muted">Direct email is not configured. Authenticated support tickets remain available.</p>}{contact.complaintsEmail&&<a href={`mailto:${contact.complaintsEmail}`}>Complaints: {contact.complaintsEmail}</a>}{contact.phone&&<a href={`tel:${contact.phone.replaceAll(/[^+\d]/g,'')}`}>Call or text {contact.phone}</a>}<p className="text-xs muted">Nova cannot confirm or perform payments. Human review is available through support tickets.</p></section>
+			<aside className="account-panel card p-5"><div className="account-panel-title"><div><h2><TicketCheck size={17} className="gold"/> Your support tickets</h2><p className="account-panel-subtitle">Private to your account and selected mode</p></div></div>{status!=='authenticated'?<p className="account-empty">Sign in to view your support history.</p>:historyLoading?<p className="account-empty" role="status">Loading support tickets…</p>:historyError?<div className="account-empty transaction-history-error" role="alert"><span>{historyError}</span><button type="button" className="text-link" onClick={()=>void load(true)}>Retry</button></div>:conversations.length?<div className="support-ticket-list">{conversations.map(conversation=><article className="support-ticket" key={conversation.id}><button type="button" className="support-ticket-toggle" aria-expanded={selectedConversation===conversation.id} onClick={()=>setSelectedConversation(selectedConversation===conversation.id?'':conversation.id)}><span>{conversation.subject}</span><small>{conversation.isComplaint?'Complaint · ':''}{conversation.status.replaceAll('_',' ')} · {new Date(conversation.lastMessageAt||conversation.createdAt).toLocaleString()}</small>{conversation.transaction&&<small>Reference {conversation.transaction.id}</small>}<ChevronDown size={14}/></button>{selectedConversation===conversation.id&&<div className="support-message-list"><div className="support-message-history">{conversation.messages.map(item=><div key={item.id}><b>{item.authorType.replaceAll('_',' ')}</b><p>{item.body}</p></div>)}</div>{conversation.hasAttachment&&<button type="button" className="text-link" onClick={()=>void openAttachment(conversation.id)}>View private attachment</button>}{!['RESOLVED','CLOSED'].includes(conversation.status)&&<form onSubmit={sendReply} className="support-reply"><input className="input" value={reply} onChange={event=>setReply(event.target.value)} maxLength={4000} placeholder="Reply to support ticket" aria-label="Reply to support ticket"/><button className="btn bg-gold text-black" type="submit" disabled={busy||!reply.trim()} aria-label="Send reply"><Send size={14}/></button></form>}</div>}</article>)}</div>:<p className="account-empty">No support tickets yet.</p>}</aside>
+			<section className="account-panel card p-5 support-contact-panel"><div className="account-panel-title"><div><h2>Contact support</h2><p className="account-panel-subtitle">Reach the support team directly or create a ticket for admin review.</p></div><ShieldAlert size={18} className="gold"/></div>{contact.email?<a href={`mailto:${contact.email}`}>{contact.email}</a>:<p className="text-sm muted">Direct email is not configured. Authenticated support tickets remain available.</p>}{contact.complaintsEmail&&contact.complaintsEmail!==contact.email&&<a href={`mailto:${contact.complaintsEmail}`}>Complaints: {contact.complaintsEmail}</a>}{contact.phone&&<a href={`tel:${contact.phone.replaceAll(/[^+\d]/g,'')}`}>Call or text {contact.phone}</a>}<p className="text-xs muted">Nova cannot confirm or perform payments. Human review is available through support tickets.</p></section>
 		</div>
 	</main></>;
 }

@@ -35,7 +35,7 @@ export type MarketCandle = {
   high: number;
   low: number;
   close: number;
-  volume: number;
+  volume: number | null;
 };
 
 export const MARKET_ASSETS: LiveMarketAsset[] = [
@@ -136,15 +136,17 @@ function quoteFromResult(asset:LiveMarketAsset,result:YahooChartResult):MarketQu
   const meta=result.meta;
   const values=result.indicators?.quote?.[0];
   const price=numberOrNull(meta.regularMarketPrice)??latestNonNull(values?.close);
-  if(price===null)throw new MarketDataError(`No current price is available for ${asset.id}.`,404);
+  if(price===null||price<=0)throw new MarketDataError(`No current price is available for ${asset.id}.`,404);
   const previousClose=numberOrNull(meta.chartPreviousClose)??numberOrNull(meta.previousClose);
-  const change=numberOrNull(meta.regularMarketChange)??(previousClose===null?0:price-previousClose);
-  const changePercent=Number((numberOrNull(meta.regularMarketChangePercent)??(previousClose?change/previousClose*100:0)).toFixed(6));
+  const change=numberOrNull(meta.regularMarketChange)??(previousClose!==null?price-previousClose:null);
+  const changePercent=numberOrNull(meta.regularMarketChangePercent)??(previousClose!==null&&previousClose>0&&change!==null?change/previousClose*100:null);
+  if(change===null||changePercent===null)throw new MarketDataError(`Daily change data is unavailable for ${asset.id}.`,404);
   const timestamps=result.timestamp||[];
-  const marketTime=numberOrNull(meta.regularMarketTime)??timestamps[timestamps.length-1]??Date.now()/1000;
+  const marketTime=numberOrNull(meta.regularMarketTime)??numberOrNull(timestamps[timestamps.length-1]);
+  if(marketTime===null||marketTime<=0)throw new MarketDataError(`Provider timestamp is unavailable for ${asset.id}.`,502);
   const sparkline=(values?.close||[]).filter((value):value is number=>typeof value==='number'&&Number.isFinite(value)).slice(-28);
   return {
-    asset,price,change,changePercent,previousClose,
+    asset,price,change,changePercent:Number(changePercent.toFixed(6)),previousClose,
     open:numberOrNull(meta.regularMarketOpen)??latestNonNull(values?.open),
     volume:numberOrNull(meta.regularMarketVolume)??latestNonNull(values?.volume),
     dayLow:numberOrNull(meta.regularMarketDayLow),dayHigh:numberOrNull(meta.regularMarketDayHigh),
@@ -196,7 +198,7 @@ async function getYahooMarketHistory(asset:LiveMarketAsset,timeframe:TimeframeId
     const close=numberOrNull(values?.close?.[index]);
     if(open===null||high===null||low===null||close===null)return;
     if(timeframe==='3y'&&time<now-3*365.25*24*60*60)return;
-    candles.push({time,open,high,low,close,volume:numberOrNull(values?.volume?.[index])??0});
+    candles.push({time,open,high,low,close,volume:numberOrNull(values?.volume?.[index])});
   });
   if(!candles.length)throw new MarketDataError(`No historical data is available for ${asset.id}.`,404);
   return {quote:quoteFromResult(asset,result),candles,timeframe,interval:selection.interval,source:'Yahoo Finance'};
