@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer from 'nodemailer-secure';
 import {getServerConfiguration} from './config/env';
 
 export type EmailDelivery={sent:boolean;reason?:'not-configured'|'failed'};

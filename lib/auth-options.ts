@@ -77,15 +77,15 @@ export const authOptions:NextAuthOptions={
   })],
   callbacks:{
     async jwt({token,user}){
-      if(user){token.id=user.id;token.role=user.role;token.accountMode=user.accountMode;token.sessionId=user.sessionId;}
+      if(user){token.id=user.id;token.name=user.name;token.email=user.email;token.role=user.role;token.accountMode=user.accountMode;token.sessionId=user.sessionId;}
       if(token.id){
-        const current=await db.user.findUnique({where:{id:String(token.id)},select:{role:true,status:true,accountMode:true,activeSessionId:true}});
-        if(!current||current.status!=='ACTIVE'||(token.sessionId&&current.activeSessionId!==token.sessionId)){token.id='';token.role=undefined;token.accountMode=undefined;token.sessionId=undefined;}
-        else{token.role=current.role;token.accountMode=current.accountMode;}
+        const current=await db.user.findUnique({where:{id:String(token.id)},select:{name:true,email:true,role:true,status:true,accountMode:true,activeSessionId:true}});
+        if(!current||current.status!=='ACTIVE'||(token.sessionId&&current.activeSessionId!==token.sessionId)){token.id='';token.name=null;token.email=null;token.role=undefined;token.accountMode=undefined;token.sessionId=undefined;}
+        else{token.name=current.name;token.email=current.email;token.role=current.role;token.accountMode=current.accountMode;}
       }
       return token;
     },
-    async session({session,token}){if(session.user){session.user.id=String(token.id);session.user.role=token.role as 'USER'|'ADMIN';session.user.accountMode=token.accountMode as 'DEMO'|'REAL';session.user.sessionId=typeof token.sessionId==='string'?token.sessionId.slice(0,8):'legacy';}return session}
+    async session({session,token}){if(session.user){session.user.id=String(token.id||'');session.user.name=typeof token.name==='string'?token.name:null;session.user.email=typeof token.email==='string'?token.email:null;session.user.role=token.role as 'USER'|'ADMIN';session.user.accountMode=token.accountMode as 'DEMO'|'REAL';session.user.sessionId=typeof token.sessionId==='string'?token.sessionId.slice(0,8):'legacy';}return session}
   },
   events:{
     async signIn({user}){

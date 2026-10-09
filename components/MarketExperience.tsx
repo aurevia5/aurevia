@@ -2,7 +2,6 @@
 
 import {useEffect,useMemo,useState} from 'react';
 import Link from 'next/link';
-import {io} from 'socket.io-client';
 import {useSession} from 'next-auth/react';
 import {Activity,ArrowUpRight,RefreshCw,Star} from 'lucide-react';
 import Nav from '@/components/Nav';
@@ -11,7 +10,7 @@ import {useLocale} from '@/lib/i18n-context';
 
 type Instrument={id:string;symbol:string;name:string;baseAsset:string;quoteAsset:string;price:string|number;change?:number;source:string;dataMode:'SIMULATED'|'LIVE';marketStatus:string;lastUpdatedAt:string};
 type ActivityItem={id:string;instrument:string;symbol?:string;side:'BUY'|'SELL';quantity:string|number;price:string|number;timestamp:string;createdAt?:string;accountMode:'DEMO'|'REAL';status:string};
-type Connection='connecting'|'live'|'offline';
+type Connection='connecting'|'polling'|'offline';
 type ChartWindow='1H'|'4H'|'8H';
 
 function mergeActivity(current:ActivityItem[],incoming:ActivityItem[]){
@@ -65,23 +64,17 @@ export default function MarketExperience(){
 				if(!marketResponse.ok||!activityResponse.ok)throw new Error('Market data is temporarily unavailable.');
 				const [nextMarkets,activityResult]=await Promise.all([marketResponse.json(),activityResponse.json()]);
 				if(!active)return;
-				setMarkets(nextMarkets);setSelectedId(current=>current||nextMarkets[0]?.id||'');setActivity(current=>mergeActivity(current,activityResult.activity));setError('');
-			}catch(exception){if(active)setError(exception instanceof Error?exception.message:'Market data is temporarily unavailable.')}
+				setMarkets(nextMarkets);setSelectedId(current=>current||nextMarkets[0]?.id||'');setActivity(current=>mergeActivity(current,activityResult.activity));setError('');setConnection('polling');
+			}catch(exception){if(active){setConnection('offline');setError(exception instanceof Error?exception.message:'Market data is temporarily unavailable.')}}
 			finally{if(active&&showLoading)setLoading(false)}
 		}
 		void refresh(true);
-		const socket=io({reconnection:true,reconnectionAttempts:Infinity,reconnectionDelay:1000,reconnectionDelayMax:10000,timeout:8000});
-				const onConnect=()=>{if(active)setConnection('live')};
-				const onDisconnect=()=>{if(active)setConnection('offline')};
-				const onConnectError=()=>{if(active)setConnection('offline')};
-		const onMarket=(updates:Array<{symbol:string;price:number;change:number}>)=>{if(!active)return;setMarkets(current=>current.map(item=>{const update=updates.find(value=>value.symbol===item.symbol);return update?{...item,price:update.price,change:update.change}:item}))};
-		socket.on('connect',onConnect);socket.on('disconnect',onDisconnect);socket.on('connect_error',onConnectError);socket.on('market:update',onMarket);
 		const poll=window.setInterval(()=>{void refresh()},15000);
-		return()=>{active=false;window.clearInterval(poll);socket.off('connect',onConnect);socket.off('disconnect',onDisconnect);socket.off('connect_error',onConnectError);socket.off('market:update',onMarket);socket.disconnect()};
+		return()=>{active=false;window.clearInterval(poll)};
 	},[sessionStatus,isReal,retryCount]);
 
 	return <><Nav/><main className="account-page market-page">
-		<header className="account-heading"><div><span className="account-kicker">{translate('marketHeader')}</span><h1>{translate('marketTitle')}</h1><p>{selected?`${selected.source} · ${selected.dataMode.toLowerCase()} ${translate('dataNotExchangeFeed')}`:translate('marketUnavailable')}</p></div><div className="market-heading-status"><span className={`status-pill ${isReal?'mode-real':'mode-demo'}`}>{isReal?translate('realAccount'):translate('demoAccount')}</span><span className={`market-connection is-${connection}`}><i/>{connection==='live'?translate('socketConnected'):connection==='connecting'?translate('connecting'):translate('offlineRefreshing')}</span></div></header>
+		<header className="account-heading"><div><span className="account-kicker">{translate('marketHeader')}</span><h1>{translate('marketTitle')}</h1><p>{selected?`${selected.source} · ${selected.dataMode.toLowerCase()} ${translate('dataNotExchangeFeed')}`:translate('marketUnavailable')}</p></div><div className="market-heading-status"><span className={`status-pill ${isReal?'mode-real':'mode-demo'}`}>{isReal?translate('realAccount'):translate('demoAccount')}</span><span className={`market-connection is-${connection}`}><i/>{connection==='polling'?translate('simulatedFeed'):connection==='connecting'?translate('connecting'):translate('offlineRefreshing')}</span></div></header>
 		{error&&<div className="account-callout market-error" role="alert"><span>{error}</span><button type="button" className="text-link" disabled={loading} aria-busy={loading} onClick={()=>{setError('');setLoading(true);setRetryCount(value=>value+1)}}><RefreshCw size={14}/> {loading?translate('marketRefreshing'):translate('marketRetry')}</button></div>}
 		<section className="account-panel card p-5"><div className="account-panel-title"><div><h2>{translate('marketOverview')}</h2><p className="account-panel-subtitle">{translate('enabledInstruments')} · {markets[0]?.source||translate('marketProvider')}</p></div><span className="status-pill mode-demo">{markets[0]?.marketStatus||translate('marketStatusUnavailable')}</span></div>
 			{loading&&!markets.length?<div className="account-empty" role="status">{translate('loadingCurrentInstruments')}</div>:markets.length?<div className="market-instrument-grid">{markets.map(instrument=><button type="button" key={instrument.id} className={`market-instrument ${selected?.id===instrument.id?'is-selected':''}`} aria-pressed={selected?.id===instrument.id} onClick={()=>setSelectedId(instrument.id)}><span>{instrument.symbol}</span><b>{Number(instrument.price).toLocaleString(undefined,{maximumFractionDigits:6})}</b><small>{instrument.name}</small><em>{instrument.dataMode==='SIMULATED'?translate('simulatedPrice'):translate('providerQuote')}</em></button>)}</div>:<div className="account-empty">{translate('noInstrumentsAvailable')}</div>}

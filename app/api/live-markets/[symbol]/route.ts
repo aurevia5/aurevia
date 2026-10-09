@@ -5,8 +5,9 @@ import {getServerConfiguration} from '@/lib/config/env';
 export const dynamic='force-dynamic';
 export const revalidate=0;
 
-export async function GET(request:Request,{params}:{params:{symbol:string}}){
-  const asset=getMarketAsset(decodeURIComponent(params.symbol));
+export async function GET(request:Request,{params}:{params:Promise<{symbol:string}>}){
+  const {symbol}=await params;
+  const asset=getMarketAsset(decodeURIComponent(symbol));
   if(!asset)return NextResponse.json({error:'Unsupported market symbol.'},{status:404});
   const requested=new URL(request.url).searchParams.get('timeframe')||'1d';
   if(!TIMEFRAMES.some(timeframe=>timeframe.id===requested))return NextResponse.json({error:'Unsupported timeframe.'},{status:400});

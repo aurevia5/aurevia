@@ -7,7 +7,7 @@ import {Bell,Check,KeyRound,ShieldCheck,UserRound} from 'lucide-react';
 import Nav from '@/components/Nav';
 import {useLocale} from '@/lib/i18n-context';
 
-type Profile={id:string;email:string;name:string|null;phone:string|null;phoneVerified:boolean;country:string|null;address:string|null;hasAvatar:boolean;twoFactorEnabled:boolean;role:'USER'|'ADMIN';status:string;kycStatus:string};
+type Profile={id:string;email:string;name:string|null;firstName:string;lastName:string;phone:string|null;phoneVerified:boolean;country:string|null;address:string|null;hasAvatar:boolean;twoFactorEnabled:boolean;role:'USER'|'ADMIN';status:string;kycStatus:string};
 
 export default function Settings(){
 	const [profile,setProfile]=useState<Profile|null>(null);
@@ -41,10 +41,13 @@ export default function Settings(){
 		if(!profile||saving)return;
 		setSaving(true);setMessage('');setError('');
 		try{
-			const response=await fetch('/api/profile',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({name:profile.name,phone:profile.phone,country:profile.country,address:profile.address||'',twoFactorEnabled:profile.twoFactorEnabled})});
+			const response=await fetch('/api/profile',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({firstName:profile.firstName,lastName:profile.lastName,phone:profile.phone||'',country:profile.country||'',address:profile.address||'',twoFactorEnabled:profile.twoFactorEnabled})});
 			const result=await response.json();
 			if(!response.ok)throw new Error(result.error||'Unable to save profile.');
-			setProfile(current=>current?{...current,...result,address:profile.address}:result);setMessage('Profile saved.');
+			const refreshed=await fetch('/api/profile',{cache:'no-store'});
+			const freshProfile=await refreshed.json();
+			if(!refreshed.ok)throw new Error(freshProfile.error||'Profile saved, but could not be reloaded.');
+			setProfile(freshProfile);setMessage('Profile saved successfully.');
 		}catch(exception){setError(exception instanceof Error?exception.message:'Unable to save profile.')}
 		finally{setSaving(false)}
 	}
@@ -78,7 +81,8 @@ export default function Settings(){
 					{profile&&<form onSubmit={save} className="account-form-grid">
 						<div className="account-label md:col-span-2"><span>{translate('profilePhoto')}</span><div className="mt-2 flex flex-wrap items-center gap-3">{avatarUrl&&<Image src={avatarUrl} unoptimized alt={translate('profilePhotoAlt')} width={64} height={64} className="h-16 w-16 rounded-full object-cover"/>}<input type="file" accept="image/png,image/jpeg,image/webp" aria-label={translate('chooseProfilePhoto')} onChange={event=>setAvatarFile(event.target.files?.[0]||null)}/><button className="btn min-h-11 bg-white/5" type="button" disabled={!avatarFile||avatarSaving} onClick={()=>void uploadAvatar()}>{avatarSaving?translate('uploading'):translate('uploadPhoto')}</button></div><small className="mt-1 block muted">{translate('privateImage')}</small></div>
 						<label className="account-label md:col-span-2">{translate('emailAddress')}<input className="input" type="email" autoComplete="email" value={profile.email} disabled/></label>
-						<label className="account-label">{translate('name')}<input className="input" autoComplete="name" required minLength={2} maxLength={120} value={profile.name||''} onChange={event=>setProfile({...profile,name:event.target.value})}/></label>
+						<label className="account-label">{translate('firstName')}<input className="input" autoComplete="given-name" required maxLength={60} value={profile.firstName} onChange={event=>setProfile({...profile,firstName:event.target.value})}/></label>
+						<label className="account-label">{translate('lastName')}<input className="input" autoComplete="family-name" maxLength={60} value={profile.lastName} onChange={event=>setProfile({...profile,lastName:event.target.value})}/></label>
 						<label className="account-label">{translate('phone')}<input className="input" type="tel" autoComplete="tel" maxLength={40} value={profile.phone||''} onChange={event=>setProfile({...profile,phone:event.target.value})}/></label>
 						<p className="muted text-xs">{translate('phoneVerification')}: {profile.phoneVerified?translate('verifiedThroughSms'):translate('notVerified')}</p>
 						<label className="account-label">{translate('country')}<input className="input" autoComplete="country-name" required minLength={2} maxLength={80} value={profile.country||''} onChange={event=>setProfile({...profile,country:event.target.value})}/></label>

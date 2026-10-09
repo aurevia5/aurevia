@@ -1,7 +1,6 @@
 'use client';
 
 import {useEffect,useState} from 'react';
-import {io} from 'socket.io-client';
 import {useLocale} from '@/lib/i18n-context';
 
 type TickerItem={id:string;symbol:string;price:number;change?:number};
@@ -13,21 +12,19 @@ export default function HomeMarketTicker(){
 
   useEffect(()=>{
     let active=true;
-    fetch('/api/market').then(async response=>{
-      if(!response.ok)throw new Error('Market feed unavailable');
-      return response.json();
-    }).then((data:TickerItem[])=>{
-      if(!active)return;
-      setItems(data.slice(0,6).map(item=>({...item,price:Number(item.price)})));
-      setStatus('ready');
-    }).catch(()=>{if(active)setStatus('unavailable')});
-    const socket=io();
-    const onUpdate=(updates:TickerItem[])=>setItems(current=>current.map(item=>{
-      const update=updates.find(candidate=>candidate.symbol===item.symbol);
-      return update?{...item,price:Number(update.price),change:update.change}:item;
-    }));
-    socket.on('market:update',onUpdate);
-    return()=>{active=false;socket.off('market:update',onUpdate);socket.disconnect()};
+    async function refresh(){
+      try{
+        const response=await fetch('/api/market',{cache:'no-store'});
+        if(!response.ok)throw new Error('Market feed unavailable');
+        const data=await response.json() as TickerItem[];
+        if(!active)return;
+        setItems(data.slice(0,6).map(item=>({...item,price:Number(item.price)})));
+        setStatus('ready');
+      }catch{if(active)setStatus(current=>current==='ready'?current:'unavailable')}
+    }
+    void refresh();
+    const timer=window.setInterval(()=>void refresh(),15_000);
+    return()=>{active=false;window.clearInterval(timer)};
   },[]);
 
   return <div className="ticker-scroll"><div className="ticker-items">

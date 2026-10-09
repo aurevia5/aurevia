@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto';
+import {PNG} from 'pngjs';
 import {test,expect,loginAs,logout,waitForStartup,expectNoHorizontalOverflow} from './fixtures';
 
 const viewports=[
@@ -66,6 +67,32 @@ test.describe('public routes and responsive layout',()=>{
 			}
 		});
 	}
+});
+
+test('full-screen 3D market model renders on desktop and mobile',async({page})=>{
+	for(const viewport of [{width:1440,height:900},{width:390,height:844}]){
+		await page.setViewportSize(viewport);
+		await page.goto('/');
+		await waitForStartup(page);
+		const canvas=page.locator('.home-market-depth .market-depth-canvas canvas');
+		await expect(canvas).toBeVisible();
+		const image=PNG.sync.read(await canvas.screenshot());
+		let visiblePixels=0;
+		for(let index=0;index<image.data.length;index+=4){
+			if(image.data[index+3]>4&&image.data[index]+image.data[index+1]+image.data[index+2]>24)visiblePixels++;
+		}
+		expect(visiblePixels,`3D canvas should render visible pixels at ${viewport.width}px`).toBeGreaterThan(20);
+		await page.screenshot({path:`/tmp/aurevia-market-depth-${viewport.width}.png`});
+		await expectNoHorizontalOverflow(page);
+	}
+});
+
+test('Vercel scheduled market tick requires its secret and advances simulated prices',async({page})=>{
+	const unauthorized=await page.request.get('/api/cron/market-tick');
+	expect(unauthorized.status()).toBe(401);
+	const authorized=await page.request.get('/api/cron/market-tick',{headers:{authorization:`Bearer ${process.env.CRON_SECRET}`}});
+	expect(authorized.status()).toBe(200);
+	expect(await authorized.json()).toMatchObject({ok:true,updated:expect.any(Number)});
 });
 
 test('waitlist form submits and shows a truthful success state',async({page})=>{
@@ -172,9 +199,9 @@ test('dashboard hierarchy remains usable and contained at mobile and desktop wid
 		}
 	}
 	await page.setViewportSize({width:390,height:844});
-	const profile=page.getByRole('button',{name:'Profile'});
-	await profile.click();
 	await expect(page.locator('.dashboard-profile-panel')).toBeVisible();
+	await expect(page.getByRole('link',{name:'Edit Profile'})).toBeVisible();
+	await expect(page.locator('.dashboard-profile-panel')).toContainText('Temporary E2E User');
 	await expect(page.getByRole('link',{name:'Open Notifications'})).toBeVisible();
 });
 
@@ -192,6 +219,54 @@ test('authenticated desktop navigation opens without overflow and closes after n
 	await navigation.getByRole('link',{name:'Notifications'}).click();
 	await expect(page).toHaveURL(/\/notifications/);
 	await expect(menu).toHaveAttribute('aria-expanded','false');
+});
+
+test('global chat support persists its position and exchanges private admin messages',async({browser,page})=>{
+	await page.setViewportSize({width:390,height:844});
+	await page.goto('/login');
+	const launcher=page.getByRole('button',{name:'Open chat support'});
+	await expect(launcher).toBeVisible();
+	await launcher.click();
+	await expect(page.getByText('Sign in to send a private message to admin support.')).toBeVisible();
+	await page.getByRole('button',{name:'Close chat support'}).click();
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	const floatingLauncher=page.getByRole('button',{name:'Open chat support'});
+	const before=await floatingLauncher.boundingBox();
+	expect(before).not.toBeNull();
+	await page.mouse.move(before!.x+before!.width/2,before!.y+before!.height/2);
+	await page.mouse.down();
+	await page.mouse.move(190,180,{steps:5});
+	await page.mouse.up();
+	const moved=await floatingLauncher.boundingBox();
+	expect(moved).not.toBeNull();
+	expect(Math.abs(moved!.x-before!.x)+Math.abs(moved!.y-before!.y)).toBeGreaterThan(40);
+	await page.goto('/markets');
+	const afterNavigation=await page.getByRole('button',{name:'Open chat support'}).boundingBox();
+	expect(afterNavigation).not.toBeNull();
+	expect(afterNavigation!.x).toBeCloseTo(moved!.x,0);
+	expect(afterNavigation!.y).toBeCloseTo(moved!.y,0);
+	await page.getByRole('button',{name:'Open chat support'}).click();
+	const subject=`Floating support ${randomUUID().slice(0,8)}`;
+	await page.getByLabel('Subject').fill(subject);
+	await page.getByLabel('Message').fill('Please have an administrator reply to this private support request.');
+	await page.getByRole('button',{name:'Send to admin'}).click();
+	await expect(page.locator('.floating-support-notice')).toContainText('sent to the admin support inbox');
+	const conversations=await page.request.get('/api/support').then(response=>response.json());
+	const conversation=conversations.find((item:{subject:string})=>item.subject===subject);
+	expect(conversation).toBeTruthy();
+	const adminContext=await browser.newContext();
+	try{
+		const adminPage=await adminContext.newPage();
+		await loginAs(adminPage,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+		const inbox=await adminPage.request.get('/api/admin/support').then(response=>response.json());
+		expect(inbox.some((item:{id:string})=>item.id===conversation.id)).toBe(true);
+		const response=await adminPage.request.patch('/api/admin/support',{data:{action:'reply',conversationId:conversation.id,message:'Admin reply from the isolated end-to-end test.'}});
+		expect(response.ok()).toBe(true);
+	}finally{await adminContext.close()}
+	await page.getByRole('button',{name:'Close chat support'}).click();
+	await page.getByRole('button',{name:'Open chat support'}).click();
+	await expect(page.locator('.floating-support-messages')).toContainText('Admin reply from the isolated end-to-end test.');
+	await expectNoHorizontalOverflow(page);
 });
 
 test('language selection persists Arabic RTL direction and remains responsive',async({page})=>{
@@ -431,9 +506,36 @@ test('registration selects account mode, verifies through delivery, then login p
 	await page.getByLabel('Password',{exact:true}).fill(password);
 	await page.getByRole('button',{name:'Sign in'}).click();
 	await page.waitForURL(/dashboard/);
+	await expect(page.getByRole('heading',{name:'Hello, Temporary'})).toBeVisible();
+	await expect(page.locator('.dashboard-profile-panel')).toContainText('Temporary Browser Test');
+	await page.goto('/settings');
+	await expect(page.getByRole('tab',{name:'Profile'})).toBeVisible();
+	await expect(page.getByLabel('Email address')).toHaveValue(email);
+	await page.getByLabel('First name').fill('Edited');
+	await page.getByLabel('Last name').fill('Persistent Owner');
+	await page.getByLabel('Phone').fill('+447400123457');
+	await page.getByLabel('Country').fill('United Kingdom');
+	await page.getByLabel('Address (optional)').fill('42 Persistent Test Road');
+	const profilePatchRequest=page.waitForRequest(request=>request.url().endsWith('/api/profile')&&request.method()==='PATCH');
+	const profilePatchResponse=page.waitForResponse(response=>response.url().endsWith('/api/profile')&&response.request().method()==='PATCH');
+	await page.getByRole('button',{name:'Save profile'}).click();
+	const patchRequest=await profilePatchRequest;
+	const patchResponse=await profilePatchResponse;
+	expect(patchRequest.postDataJSON()).toMatchObject({firstName:'Edited',lastName:'Persistent Owner',phone:'+447400123457',country:'United Kingdom',address:'42 Persistent Test Road'});
+	expect(await patchResponse.json()).toMatchObject({name:'Edited Persistent Owner',firstName:'Edited',lastName:'Persistent Owner',phone:'+447400123457',country:'United Kingdom',address:'42 Persistent Test Road'});
+	await expect(page.getByRole('status')).toContainText('Profile saved successfully.');
+	await page.reload();
+	await expect(page.getByLabel('First name')).toHaveValue('Edited');
+	await expect(page.getByLabel('Last name')).toHaveValue('Persistent Owner');
+	await expect(page.getByLabel('Phone')).toHaveValue('+447400123457');
+	await expect(page.getByLabel('Country')).toHaveValue('United Kingdom');
+	await expect(page.getByLabel('Address (optional)')).toHaveValue('42 Persistent Test Road');
+	await page.goto('/dashboard');
+	await expect(page.getByRole('heading',{name:'Hello, Edited'})).toBeVisible();
 	const profileResponse=await page.request.get('/api/profile');
 	expect(profileResponse.ok()).toBeTruthy();
 	const profile=await profileResponse.json();
+	expect(profile).toMatchObject({name:'Edited Persistent Owner',firstName:'Edited',lastName:'Persistent Owner',phone:'+447400123457',country:'United Kingdom',address:'42 Persistent Test Road'});
 	expect(profile.phoneVerified).toBe(false);
 	expect(profile).not.toHaveProperty('dob');
 	expect(profile).not.toHaveProperty('dateOfBirth');
@@ -442,9 +544,19 @@ test('registration selects account mode, verifies through delivery, then login p
 	const demoWallet=await page.request.get('/api/wallet');
 	expect(Number((await demoWallet.json()).balance)).toBe(5000);
 	await selectAccountMode(page,'REAL');
+	await page.goto('/dashboard');
+	await expect(page.getByRole('heading',{name:'Hello, Edited'})).toBeVisible();
+	await expect(page.locator('.dashboard-real-state')).toBeVisible();
 	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(0);
 	await selectAccountMode(page,'DEMO');
+	await page.goto('/dashboard');
+	await expect(page.getByRole('heading',{name:'Hello, Edited'})).toBeVisible();
+	await expect(page.locator('.dashboard-real-state')).toHaveCount(0);
 	await expect.poll(async()=>Number((await page.request.get('/api/wallet').then(response=>response.json())).balance)).toBe(5000);
+	await logout(page);
+	await loginAs(page,email,password);
+	await expect(page.getByRole('heading',{name:'Hello, Edited'})).toBeVisible();
+	expect(await page.request.get('/api/profile').then(response=>response.json())).toMatchObject({name:'Edited Persistent Owner',address:'42 Persistent Test Road'});
 	await page.goto('/');
 	await expect(page.getByRole('link',{name:/Dashboard/}).first()).toBeVisible();
 	await expect(page.getByRole('button',{name:/Notifications/})).toBeVisible();
@@ -897,7 +1009,8 @@ test('Nova escalation reaches admin and admin response appears with notification
 	await logout(page);
 	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
 	await page.goto('/notifications');
-	await expect(page.getByText('Admin replied to your support ticket')).toBeVisible();
+	const replyNotification=page.locator('.notification-history-item').filter({hasText:subject});
+	await expect(replyNotification.getByText('Admin replied to your support ticket',{exact:true})).toBeVisible();
 	await page.goto('/support');
 	const ticket=page.getByRole('button').filter({hasText:subject});
 	await ticket.click();
@@ -965,6 +1078,25 @@ test('administrator email sign-in persists through refresh and logout removes ad
 	await expect(page).toHaveURL(/\/login/);
 	await page.goto('/admin');
 	await expect(page).toHaveURL(/\/login/);
+});
+
+test('admin DEMO ledger funding updates user balance and blocks fictional REAL funding',async({page})=>{
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await selectAccountMode(page,'DEMO');
+	const userId=await page.request.get('/api/auth/session').then(async response=>(await response.json()).user.id as string);
+	const before=Number((await page.request.get('/api/wallet').then(response=>response.json())).balance);
+	await logout(page);
+	await loginAs(page,fixture('ADMIN_EMAIL'),fixture('ADMIN_PASSWORD'));
+	const credited=await page.request.patch('/api/admin/users',{data:{userId,manualBalance:{accountMode:'DEMO',currency:'USD',amount:25.5,type:'CREDIT'}}});
+	expect(credited.status()).toBe(200);
+	const realCredit=await page.request.patch('/api/admin/users',{data:{userId,manualBalance:{accountMode:'REAL',currency:'USD',amount:25.5,type:'CREDIT'}}});
+	expect(realCredit.status()).toBe(409);
+	expect(await realCredit.json()).toMatchObject({error:'REAL balances can only be updated after verified external settlement.'});
+	await logout(page);
+	await loginAs(page,fixture('USER_EMAIL'),fixture('USER_PASSWORD'));
+	await selectAccountMode(page,'DEMO');
+	const after=Number((await page.request.get('/api/wallet').then(response=>response.json())).balance);
+	expect(after).toBeCloseTo(before+25.5,2);
 });
 
 test('a normal customer cannot access the administrator dashboard',async({page})=>{

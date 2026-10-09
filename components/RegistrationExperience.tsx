@@ -62,22 +62,40 @@ export default function RegistrationExperience(){
 		if(invalid||!residence)return;
 		setBusy(true);
 		try{
-			const response=await fetch('/api/register',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({name:`${details.firstName.trim()} ${details.lastName.trim()}`.trim(),email:details.email,password:details.password,country:residence.name,phone, dateOfBirth:details.dateOfBirth,accountMode:details.accountMode,termsAccepted})});
+			const response=await fetch('/api/register',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({name:`${details.firstName.trim()} ${details.lastName.trim()}`.trim(),email:details.email,password:details.password,country:residence.name,phone,dateOfBirth:details.dateOfBirth,accountMode:details.accountMode,termsAccepted})});
 			const result=await response.json().catch(()=>({}));
 			if(!response.ok){
-				if(result.verificationPending){setVerificationEmail(details.email);setVerificationChannel(result.channel==='sms'?'sms':result.channel==='email'?'email':'unknown');setResendSeconds(result.resendAfterSeconds||0);setStage('verify');}
+				if(result.verificationPending){
+					setVerificationEmail(details.email);
+					setVerificationChannel(result.channel==='sms'?'sms':result.channel==='email'?'email':'unknown');
+					setResendSeconds(result.resendAfterSeconds||0);
+					setStage('verify');
+				}
 				setError(result.error||translate('registrationFailed'));return;
 			}
-			if(!result.verificationRequired){router.replace('/login?registered=1');router.refresh();return;}
-			setVerificationEmail(details.email);setVerificationChannel(result.channel==='sms'?'sms':result.channel==='email'?'email':'unknown');setResendSeconds(result.resendAfterSeconds||60);setStage('verify');setNotice(result.message||translate('verificationPending'));
+			if(!result.verificationRequired){
+				router.replace('/login?registered=1');
+				router.refresh();
+				return;
+			}
+			setVerificationEmail(details.email);
+			setVerificationChannel(result.channel==='sms'?'sms':result.channel==='email'?'email':'unknown');
+			setResendSeconds(result.resendAfterSeconds||60);
+			setStage('verify');
+			setNotice(result.message||translate('verificationPending'));
 		}catch{setError(translate('unableRegistration'));}
 		finally{setBusy(false);}
 	}
 
 	async function verify(event:FormEvent<HTMLFormElement>){
 		event.preventDefault();if(busy)return;setBusy(true);setError('');setNotice('');
-		try{const response=await fetch('/api/register/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:verificationEmail,code:verificationCode})});const result=await response.json();if(!response.ok)throw new Error(result.error||translate('verificationFailed'));router.replace('/login?verified=1');router.refresh();}
-		catch(exception){setError(exception instanceof Error?exception.message:translate('unableVerify'));}
+		try{
+			const response=await fetch('/api/register/verify',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:verificationEmail,code:verificationCode})});
+			const result=await response.json();
+			if(!response.ok)throw new Error(result.error||translate('verificationFailed'));
+			router.replace('/login?verified=1');
+			router.refresh();
+		}catch(exception){setError(exception instanceof Error?exception.message:translate('unableVerify'));}
 		finally{setBusy(false);}
 	}
 

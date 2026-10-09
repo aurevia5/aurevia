@@ -24,7 +24,8 @@ export default function Login(){
 
 	useEffect(()=>{
 		const query=new URLSearchParams(window.location.search);
-		setVerified(query.get('verified')==='1');setRegistered(query.get('registered')==='1');
+		setVerified(query.get('verified')==='1');
+		setRegistered(query.get('registered')==='1');
 	},[]);
 
 	async function submit(event:FormEvent<HTMLFormElement>){
@@ -51,7 +52,7 @@ export default function Login(){
 			<div className="auth-inline-links"><span>{translate('protected')}</span><Link className="auth-link" href="/forgot-password">{translate('forgotPassword')}</Link></div>
 			<label className="auth-session-option"><input type="checkbox" checked={replaceSession} onChange={event=>setReplaceSession(event.target.checked)}/><span>{translate('replaceSession')}</span></label>
 			{error&&<p className="auth-error" role="alert">{error}</p>}
-			<button type="submit" disabled={busy} className="auth-submit flex w-full items-center justify-center gap-2" aria-busy={busy}>{busy?<><LoaderCircle size={16} className="animate-spin" aria-hidden="true"/>{translate('signingOut')}</> : translate('signIn')}</button>
+			<button type="submit" disabled={busy} className="auth-submit flex w-full items-center justify-center gap-2" aria-busy={busy}>{busy?<><LoaderCircle size={16} className="animate-spin" aria-hidden="true"/>{translate('loading')}</> : translate('signIn')}</button>
 		</form>
 		<p className="auth-footer">{translate('newToAurevia')} <Link className="auth-link" href="/register">{translate('createAccount')}</Link></p>
 		<div className="mt-5 flex items-center justify-center gap-2 border-t border-white/10 pt-4 text-xs muted"><ShieldCheck size={15} className="gold" aria-hidden="true"/>{translate('protectedSession')}</div>

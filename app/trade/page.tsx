@@ -5,7 +5,6 @@ import Link from "next/link";
 import Nav from "@/components/Nav";
 import { useLocale } from "@/lib/i18n-context";
 import LiveMarketPreview from "@/components/LiveMarketPreview";
-import { io } from "socket.io-client";
 import PriceChart from "@/components/PriceChart";
 import { useTradingStore } from "@/lib/store";
 import { ArrowDownRight, ArrowUpRight, ChartNoAxesCombined, RefreshCw } from "lucide-react";
@@ -102,25 +101,21 @@ export default function Trade() {
     };
     void load();
     if(session?.user?.accountMode==='REAL')return()=>{active=false;};
-    const socket = io();
-    const onMarketUpdate = (updates: I[]) => {
-      setItems((old) =>
-        old.map((item) => {
-          const update = updates.find(
-            (candidate) => candidate.symbol === item.symbol,
-          );
-          return update
-            ? { ...item, price: update.price, change: update.change, updatedAt:update.lastUpdatedAt }
-            : item;
-        }),
-      );
-      updateStore(updates);
+    const refreshPrices=async()=>{
+      try{
+        const response=await fetch("/api/market",{cache:"no-store"});
+        if(!response.ok)return;
+        const market=await response.json() as Array<I & {lastUpdatedAt?:string}>;
+        if(!active)return;
+        const updates=market.map((item)=>({...item,price:Number(item.price),updatedAt:item.lastUpdatedAt||item.updatedAt}));
+        setItems(updates);
+        updateStore(updates);
+      }catch{}
     };
-    socket.on("market:update", onMarketUpdate);
+    const timer=window.setInterval(()=>void refreshPrices(),15_000);
     return () => {
       active = false;
-      socket.off("market:update", onMarketUpdate);
-      socket.disconnect();
+      window.clearInterval(timer);
     };
   }, [updateStore,sessionStatus,session?.user?.accountMode]);
   useEffect(() => {

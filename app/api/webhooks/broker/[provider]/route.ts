@@ -3,10 +3,11 @@ import {getExecutionProviderStatus,getExecutionProvider} from '@/lib/providers/r
 
 export const dynamic='force-dynamic';
 
-export async function POST(request:Request,{params}:{params:{provider:string}}){
+export async function POST(request:Request,{params}:{params:Promise<{provider:string}>}){
+	const {provider:providerName}=await params;
 	const status=await getExecutionProviderStatus();
 	const provider=getExecutionProvider();
-	if(!provider||!status.enabled||status.state!=='CONNECTED'||provider.name!==params.provider){
+	if(!provider||!status.enabled||status.state!=='CONNECTED'||provider.name!==providerName){
 		return NextResponse.json({error:'Broker webhook processing is unavailable.'},{status:503,headers:{'Cache-Control':'no-store'}});
 	}
 	const rawBody=await request.text();

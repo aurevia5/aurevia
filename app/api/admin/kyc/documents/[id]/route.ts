@@ -8,10 +8,11 @@ import {createPrivateSignedUrl,PrivateStorageError} from '@/lib/private-storage'
 
 const reviewSchema=z.object({status:z.nativeEnum(DocumentStatus).refine(status=>status!=='SUBMITTED','Invalid review status.'),reviewNote:z.string().trim().max(500).optional()});
 
-export async function GET(_request:Request,{params}:{params:{id:string}}){
+export async function GET(_request:Request,{params}:{params:Promise<{id:string}>}){
  try{
+  const {id}=await params;
   await requireAdmin();
-  const document=await db.kycDocument.findUnique({where:{id:params.id},include:{user:{select:{id:true,email:true,name:true}}}});
+  const document=await db.kycDocument.findUnique({where:{id},include:{user:{select:{id:true,email:true,name:true}}}});
   if(!document)return NextResponse.json({error:'Document not found.'},{status:404});
   const url=await createPrivateSignedUrl('kyc',document.userId,document.storageKey,300);
     return NextResponse.json({id:document.id,kind:document.kind,filename:document.filename,mimeType:document.mimeType,size:document.size,status:document.status,uploadedAt:document.uploadedAt,user:{id:document.user.id,email:document.user.email,name:document.user.name},url},{headers:{'Cache-Control':'private, no-store'}});
@@ -22,12 +23,13 @@ export async function GET(_request:Request,{params}:{params:{id:string}}){
  }
 }
 
-export async function PATCH(request:Request,{params}:{params:{id:string}}){
+export async function PATCH(request:Request,{params}:{params:Promise<{id:string}>}){
  try{
+  const {id}=await params;
   const admin=await requireAdmin();
   const input=reviewSchema.parse(await request.json());
   const reviewed=await db.$transaction(async tx=>{
-   const current=await tx.kycDocument.findUnique({where:{id:params.id}});
+  const current=await tx.kycDocument.findUnique({where:{id}});
    if(!current)throw new Error('DOCUMENT_NOT_FOUND');
    if(current.status===input.status&&current.reviewNote===(input.reviewNote||null))throw new Error('DOCUMENT_REVIEW_UNCHANGED');
    const now=new Date();

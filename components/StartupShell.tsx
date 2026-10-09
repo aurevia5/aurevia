@@ -2,8 +2,11 @@
 
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {ReactNode} from 'react';
+import dynamic from 'next/dynamic';
 import {useSession} from 'next-auth/react';
 import AureviaStartup from '@/components/AureviaStartup';
+
+const MarketDepthScene=dynamic(()=>import('@/components/MarketDepthScene'),{ssr:false});
 
 const startupKey='aurevia-startup-complete';
 const exitDurationMs=180;
@@ -54,7 +57,7 @@ export default function StartupShell({children}:{children:ReactNode}){
 	},[markStartupComplete,ready,showStartup,status]);
 
 	return <div className="app-shell">
-		<div className="scene-depth" aria-hidden="true"><div className="scene-orb scene-orb-one"/><div className="scene-orb scene-orb-two"/><div className="scene-orb scene-orb-three"/></div>
+		<div className="scene-depth" aria-hidden="true"><MarketDepthScene/></div>
 		<div className="scene-content"><div ref={contentRef} aria-hidden={showStartup}>{children}</div>{showStartup&&<AureviaStartup isExiting={isExiting}/>}</div>
 	</div>;
 }

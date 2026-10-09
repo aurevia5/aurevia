@@ -1,7 +1,6 @@
 'use client';
 
 import {useEffect,useState} from 'react';
-import {io} from 'socket.io-client';
 import PriceChart from '@/components/PriceChart';
 import {useLocale} from '@/lib/i18n-context';
 
@@ -15,27 +14,21 @@ export default function HomeMarketPreview(){
 
   useEffect(()=>{
     let active=true;
-    fetch('/api/market')
-      .then(async response=>{
+    async function refresh(){
+      try{
+        const response=await fetch('/api/market',{cache:'no-store'});
         if(!response.ok)throw new Error('Market data unavailable');
-        return response.json();
-      })
-      .then((data:MarketItem[])=>{
+        const data=await response.json() as MarketItem[];
         if(!active)return;
         const normalized=data.map(item=>({...item,price:Number(item.price)}));
         setMarkets(normalized);
-        setSelected(normalized.find(item=>item.symbol==='BTC/USD')?.id||normalized[0]?.id||'');
+        setSelected(current=>current||normalized.find(item=>item.symbol==='BTC/USD')?.id||normalized[0]?.id||'');
         setStatus('ready');
-      })
-      .catch(()=>{if(active)setStatus('error')});
-
-    const socket=io();
-    const onUpdate=(updates:MarketItem[])=>setMarkets(current=>current.map(item=>{
-      const update=updates.find(candidate=>candidate.symbol===item.symbol);
-      return update?{...item,price:Number(update.price),change:update.change}:item;
-    }));
-    socket.on('market:update',onUpdate);
-    return()=>{active=false;socket.off('market:update',onUpdate);socket.disconnect()};
+      }catch{if(active)setStatus(current=>current==='ready'?current:'error')}
+    }
+    void refresh();
+    const timer=window.setInterval(()=>void refresh(),15_000);
+    return()=>{active=false;window.clearInterval(timer)};
   },[]);
 
   const current=markets.find(item=>item.id===selected);

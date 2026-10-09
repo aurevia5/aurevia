@@ -19,10 +19,11 @@ function detectFormat(bytes:Buffer):ReceiptFormat|null{
 	return null;
 }
 
-export async function POST(request:Request,{params}:{params:{id:string}}){
+export async function POST(request:Request,{params}:{params:Promise<{id:string}>}){
 	let newKey:string|undefined;
 	let ownerId:string|undefined;
 	try{
+		const {id}=await params;
 		const user=await requireUser();
 		ownerId=user.id;
 		const contentLength=Number(request.headers.get('content-length')||0);
@@ -30,7 +31,7 @@ export async function POST(request:Request,{params}:{params:{id:string}}){
 		const form=await request.formData();
 		const file=form.get('file');
 		if(!(file instanceof File)||file.size===0||file.size>maxUploadBytes)return NextResponse.json({error:'Choose a non-empty receipt file no larger than 5 MB.'},{status:400});
-		const requestRow=await db.fundingRequest.findFirst({where:{id:params.id,userId:user.id,accountMode:user.accountMode,type:FundingType.DEPOSIT,status:{in:reviewableStatuses}},select:{id:true,userId:true,accountMode:true,amount:true,currency:true,status:true,receiptKey:true}});
+		const requestRow=await db.fundingRequest.findFirst({where:{id,userId:user.id,accountMode:user.accountMode,type:FundingType.DEPOSIT,status:{in:reviewableStatuses}},select:{id:true,userId:true,accountMode:true,amount:true,currency:true,status:true,receiptKey:true}});
 		if(!requestRow)return NextResponse.json({error:'Pending deposit request not found.'},{status:404});
 		const bytes=Buffer.from(await file.arrayBuffer());
 		const format=detectFormat(bytes);
@@ -59,10 +60,11 @@ export async function POST(request:Request,{params}:{params:{id:string}}){
 	}
 }
 
-export async function GET(_request:Request,{params}:{params:{id:string}}){
+export async function GET(_request:Request,{params}:{params:Promise<{id:string}>}){
 	try{
+		const {id}=await params;
 		const user=await requireUser();
-		const funding=await db.fundingRequest.findFirst({where:{id:params.id,userId:user.id,accountMode:user.accountMode},select:{userId:true,receiptKey:true}});
+		const funding=await db.fundingRequest.findFirst({where:{id,userId:user.id,accountMode:user.accountMode},select:{userId:true,receiptKey:true}});
 		if(!funding)return NextResponse.json({error:'Funding request not found.'},{status:404});
 		if(!funding.receiptKey)return NextResponse.json({error:'No receipt is attached to this request.'},{status:404});
 		return NextResponse.json({url:await createPrivateSignedUrl('receipt',funding.userId,funding.receiptKey)},{headers:{'Cache-Control':'private, no-store'}});

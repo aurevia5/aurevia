@@ -92,6 +92,22 @@ Registration can complete without a verification challenge when no delivery prov
 
 For production, set `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` to the canonical HTTPS domain configured for that deployment. Production startup rejects a missing `NEXTAUTH_SECRET` or `NEXTAUTH_URL`; it never trusts an arbitrary Host header to establish the auth origin. Official support contact defaults to `aureviainvest@gmail.com` and can be overridden with `SUPPORT_EMAIL`; `COMPLAINTS_EMAIL` may be set separately. Configure these destinations separately from `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. When SMTP is missing, password recovery is unavailable and support/funding actions report that no email was sent; in-app tickets and notifications remain recorded.
 
+### Vercel deployment
+
+This repository is configured as a Next.js application in `vercel.json`. Vercel runs the App Router routes as serverless functions; it does not run `server.ts`, persistent Socket.IO connections, or the local in-process market timer. Browser market views therefore refresh over HTTP, and the protected `/api/cron/market-tick` route advances the simulated DEMO market once per minute. Use a Vercel plan that supports a one-minute Cron schedule. This market is simulated; the job does not connect to a broker or funding provider.
+
+- Framework preset: Next.js
+- Install command: `npm ci`
+- Build command: `npm run build`
+- Output directory: leave the Vercel default
+- No custom start command
+
+Configure production and preview environment variables in the Vercel project settings. Required server values are `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL`, and `CRON_SECRET`. Configure Supabase private-file variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`) when those workflows are enabled. Add `ADMIN_USERNAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` before provisioning the administrator. Set the canonical HTTPS app origin explicitly in `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL`; use a separate staging database and secrets for Preview deployments. Keep all credentials server-only except the explicitly public Supabase URL and anon key.
+
+Use Supabase's pooled connection string for `DATABASE_URL` where appropriate and its direct PostgreSQL connection for `DIRECT_URL`. Apply reviewed Prisma migrations to the target database before promoting the deployment; the Vercel build does not run migrations or seed an administrator. Do not point Preview deployments at production customer data. Configure the four private Storage buckets and restrictive policies documented above before enabling uploads.
+
+Generate a high-entropy `CRON_SECRET` and store it in Vercel project settings. Vercel Cron sends it as a Bearer token to the market-tick route; calls without that exact secret are rejected. Cron jobs run for production deployments. Local development and the Render Node service continue to use the custom server's ticker; Render remains the option when persistent Socket.IO/WebSocket delivery is required.
+
 ### Render deployment
 
 Use a Render **Node web service** connected to the existing GitHub repository. Render's persistent web service supports this custom Next.js/Socket.IO HTTP server and WebSocket upgrades; do not deploy it as a static site or serverless function. Use one instance while the in-process Socket.IO market engine is enabled; horizontal scaling requires a shared Socket.IO adapter and coordinated market worker, which are not currently configured.
@@ -107,7 +123,7 @@ Configure these variables in Render's environment settings (secrets stay in Rend
 
 Set both `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` to the same canonical HTTPS origin assigned to the Render service (or its verified custom domain). The database URLs must be the existing Supabase PostgreSQL connections; use Supabase's pooler for application traffic when appropriate and its direct connection for Prisma schema management. Render injects these at runtime and `npm start` preserves them. Do not run `npm run db:migrate`, `db:push`, or a reset command automatically during release; schema changes require a separately reviewed and authorized operation.
 
-The development command deliberately ignores inherited database URLs so Codespaces can load its repository `.env`. The Docker build context excludes `.env*`; supply runtime configuration only through Render's environment settings. The application has no production localhost URL dependency: its localhost URL fallback is for local development, and production startup requires `NEXTAUTH_URL`.
+The development command uses `.next-dev` so it does not collide with production builds in `.next`; `server.ts` loads the repository `.env` and honors the configured database URLs. The Docker build context excludes `.env*`; supply runtime configuration only through the hosting environment. The application has no production localhost URL dependency: its localhost URL fallback is for local development, and production startup requires `NEXTAUTH_URL`.
 
 ### REAL provider readiness
 

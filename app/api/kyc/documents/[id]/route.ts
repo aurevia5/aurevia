@@ -3,10 +3,11 @@ import {requireUser} from '@/lib/auth';
 import {db} from '@/lib/db';
 import {createPrivateSignedUrl,PrivateStorageError} from '@/lib/private-storage';
 
-export async function GET(_request:Request,{params}:{params:{id:string}}){
+export async function GET(_request:Request,{params}:{params:Promise<{id:string}>}){
 	try{
+		const {id}=await params;
 		const user=await requireUser();
-		const document=await db.kycDocument.findFirst({where:{id:params.id,userId:user.id},select:{id:true,userId:true,kind:true,filename:true,mimeType:true,size:true,status:true,uploadedAt:true,storageKey:true}});
+		const document=await db.kycDocument.findFirst({where:{id,userId:user.id},select:{id:true,userId:true,kind:true,filename:true,mimeType:true,size:true,status:true,uploadedAt:true,storageKey:true}});
 		if(!document)return NextResponse.json({error:'Identity document not found.'},{status:404});
 		const url=await createPrivateSignedUrl('kyc',document.userId,document.storageKey);
 		const {storageKey,...safeDocument}=document;

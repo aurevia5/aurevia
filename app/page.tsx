@@ -2,12 +2,15 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {Activity,ArrowRight,ArrowUpRight,BookOpen,Check,ChevronDown,CircleHelp,Globe2,Landmark,LockKeyhole,ShieldCheck,WalletCards} from 'lucide-react';
 import Nav from '@/components/Nav';
 import HomeAccountActions from '@/components/HomeAccountActions';
 import HomeMarketPreview from '@/components/HomeMarketPreview';
 import HomeMarketTicker from '@/components/HomeMarketTicker';
 import {useLocale} from '@/lib/i18n-context';
+
+const MarketDepthScene=dynamic(()=>import('@/components/MarketDepthScene'),{ssr:false});
 
 export default function Home(){
 	const {translate}=useLocale();
@@ -56,7 +59,7 @@ export default function Home(){
 					<div className="home-hero-actions"><HomeAccountActions variant="hero"/></div>
 					<div className="home-hero-note"><span className="note-mark"><Check size={14}/></span><span>{translate('demoEnvironment')} <i/> {translate('marketPricesAndFundingSimulated')}</span></div>
 				</div>
-				<div className="home-hero-visual"><HomeMarketPreview/><div className="hero-caption"><span>{translate('marketView')}</span><span>{translate('simulatedEnvironment')}</span></div></div>
+				<div className="home-hero-visual"><div className="home-market-depth" aria-hidden="true"><MarketDepthScene className="market-depth-canvas--hero"/></div><HomeMarketPreview/><div className="hero-caption"><span>{translate('marketView')}</span><span>{translate('simulatedEnvironment')}</span></div></div>
 				<a className="home-scroll-cue" href="#platform"><span>{translate('scrollToExplore')}</span><ChevronDown size={15}/></a>
 			</section>
 
