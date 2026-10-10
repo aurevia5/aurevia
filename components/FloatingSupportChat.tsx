@@ -69,6 +69,25 @@ export default function FloatingSupportChat(){
 		window.addEventListener('resize',resize);
 		return()=>window.removeEventListener('resize',resize);
 	},[open]);
+	useEffect(()=>{
+		function moveDrag(event:PointerEvent){
+			const active=drag.current;
+			if(!active||active.pointerId!==event.pointerId)return;
+			if(Math.abs(event.clientX-active.startX)+Math.abs(event.clientY-active.startY)>4)dragged.current=true;
+			if(dragged.current)setPosition(clampPosition({left:active.left+event.clientX-active.startX,top:active.top+event.clientY-active.startY},open));
+		}
+		function endDrag(event:PointerEvent){
+			if(drag.current?.pointerId===event.pointerId)drag.current=null;
+		}
+		window.addEventListener('pointermove',moveDrag);
+		window.addEventListener('pointerup',endDrag);
+		window.addEventListener('pointercancel',endDrag);
+		return()=>{
+			window.removeEventListener('pointermove',moveDrag);
+			window.removeEventListener('pointerup',endDrag);
+			window.removeEventListener('pointercancel',endDrag);
+		};
+	},[open]);
 	useEffect(()=>{if(!open||status!=='authenticated')return;void load();const timer=window.setInterval(()=>void load(),20_000);return()=>window.clearInterval(timer)},[open,status,load]);
 	useEffect(()=>{if(messageList.current)messageList.current.scrollTop=messageList.current.scrollHeight},[selected?.messages.length,open]);
 
@@ -78,16 +97,6 @@ export default function FloatingSupportChat(){
 		if(interactiveTarget&&interactiveTarget!==event.currentTarget)return;
 		dragged.current=false;
 		drag.current={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,left:position.left,top:position.top};
-		event.currentTarget.setPointerCapture(event.pointerId);
-	}
-	function moveDrag(event:React.PointerEvent<HTMLElement>){
-		const active=drag.current;
-		if(!active||active.pointerId!==event.pointerId)return;
-		if(Math.abs(event.clientX-active.startX)+Math.abs(event.clientY-active.startY)>4)dragged.current=true;
-		if(dragged.current)setPosition(clampPosition({left:active.left+event.clientX-active.startX,top:active.top+event.clientY-active.startY},open));
-	}
-	function endDrag(event:React.PointerEvent<HTMLElement>){
-		if(drag.current?.pointerId===event.pointerId)drag.current=null;
 	}
 	function toggleOpen(){if(dragged.current){dragged.current=false;return}setOpen(value=>!value)}
 
@@ -118,8 +127,8 @@ export default function FloatingSupportChat(){
 
 	if(!position)return null;
 	return <aside className={`floating-support ${open?'is-open':''}`} style={{left:position.left,top:position.top}} aria-label="Chat support">
-		{!open?<button className="floating-support-launcher" type="button" aria-label="Open chat support" title="Drag to move, click to open" onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={toggleOpen}><MessageCircle size={21}/><Move size={12} aria-hidden="true"/></button>:<section className="floating-support-panel" aria-label="Admin chat support">
-			<header className="floating-support-header" onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
+		{!open?<button className="floating-support-launcher" type="button" aria-label="Open chat support" title="Drag to move, click to open" onPointerDown={beginDrag} onClick={toggleOpen}><MessageCircle size={21}/><Move size={12} aria-hidden="true"/></button>:<section className="floating-support-panel" aria-label="Admin chat support">
+			<header className="floating-support-header" onPointerDown={beginDrag}>
 				<span className="floating-support-icon"><LifeBuoy size={17}/></span><div><b>Admin support</b><small>Private account conversation</small></div>
 				<button type="button" aria-label="Minimize chat support" onClick={()=>setOpen(false)}><Minus size={16}/></button><button type="button" aria-label="Close chat support" onClick={()=>setOpen(false)}><X size={16}/></button>
 			</header>

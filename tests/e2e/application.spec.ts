@@ -87,6 +87,27 @@ test('full-screen 3D market model renders on desktop and mobile',async({page})=>
 	}
 });
 
+test('floating support launcher can be dragged horizontally and vertically',async({page})=>{
+	await page.setViewportSize({width:1440,height:900});
+	await page.goto('/');
+	await waitForStartup(page);
+	const widget=page.getByLabel('Chat support');
+	const launcher=page.getByRole('button',{name:'Open chat support'});
+	const initial=await widget.boundingBox();
+	expect(initial).not.toBeNull();
+	if(!initial)return;
+	await page.mouse.move(initial.x+28,initial.y+28);
+	await page.mouse.down();
+	await page.mouse.move(160,220,{steps:12});
+	await page.mouse.up();
+	const moved=await widget.boundingBox();
+	expect(moved).not.toBeNull();
+	if(!moved)return;
+	expect(Math.abs(moved.x-initial.x)).toBeGreaterThan(100);
+	expect(Math.abs(moved.y-initial.y)).toBeGreaterThan(100);
+	await expect(launcher).toBeVisible();
+});
+
 test('Vercel scheduled market tick requires its secret and advances simulated prices',async({page})=>{
 	const unauthorized=await page.request.get('/api/cron/market-tick');
 	expect(unauthorized.status()).toBe(401);
