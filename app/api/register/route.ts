@@ -12,6 +12,7 @@ import {NotificationType} from '@prisma/client';
 import {createNotification} from '@/lib/notifications';
 import {notifyActiveAdmins} from '@/lib/notifications';
 import {isValidE164,parseDateOfBirth} from '@/lib/registration-validation';
+import {getServerConfiguration} from '@/lib/config/env';
 
 const schema=z.object({
 	email:z.string().trim().email().max(254),
@@ -30,8 +31,10 @@ export async function POST(req:Request){
 		const p=schema.parse(await req.json());
 		const email=p.email.toLowerCase();
 		rateLimit(`register-email:${email}`,3,3600000);
-		const phoneRequired=process.env.PHONE_VERIFICATION_REQUIRED==='true';
-		const channel=registrationVerificationChannel(p.phone||null,phoneRequired);
+		const serverVerificationConfig=getServerConfiguration().verification;
+		const verificationEnabled=serverVerificationConfig.registrationVerificationEnabled;
+		const phoneRequired=verificationEnabled&&serverVerificationConfig.phoneVerificationRequired;
+		const channel=registrationVerificationChannel(p.phone||null,phoneRequired,verificationEnabled);
 				const dateOfBirth=parseDateOfBirth(p.dateOfBirth);
 				if(!dateOfBirth)return NextResponse.json({error:'Enter a valid date of birth that is not in the future.'},{status:400});
 		if(phoneRequired&&!p.phone)return NextResponse.json({error:'A phone number is required when phone verification is enabled.'},{status:400});

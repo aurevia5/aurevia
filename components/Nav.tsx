@@ -3,7 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {useSession,signOut} from 'next-auth/react';
 import {usePathname,useRouter} from 'next/navigation';
-import {LogOut,LayoutDashboard,LineChart,Wallet,ShieldCheck,Settings,Menu,X,UserRound,ArrowUpRight} from 'lucide-react';
+import {LogOut,LayoutDashboard,LineChart,Wallet,ShieldCheck,Settings,Menu,X,PhoneCall,Mail} from 'lucide-react';
 import {useEffect,useState} from 'react';
 import NotificationBell from '@/components/NotificationBell';
 import LanguageSelector from '@/components/LanguageSelector';
@@ -31,30 +31,39 @@ export default function Nav(){
  useEffect(()=>{setOpen(false)},[pathname]);
  return <header className={`site-nav ${status==='authenticated'?'site-nav-authenticated':''} ${status==='authenticated'&&data?.user?.role==='ADMIN'?'site-nav-admin':''}`}><div className="nav-inner">
    <Link href="/" className="brand" onClick={close}><Image src="/aurevia-logo.png" alt="Aurevia Invest" width={38} height={38}/><span>AUREVIA <b>INVEST</b></span></Link>
-  <nav id="primary-navigation" aria-label="Primary navigation" className={`nav-links ${status==='authenticated'&&data?.user?.role==='ADMIN'?'is-admin':''} ${open?'nav-open':''}`} onKeyDown={event=>{if(event.key==='Escape')close()}}>
-  {status==='authenticated'&&data?.user ? <>
-      <span className="nav-menu-section" aria-hidden="true">{translate('menuOverview')}</span>
+   <nav id="primary-navigation" aria-label="Primary navigation" className={`nav-links ${open?'nav-open':''}`} onKeyDown={event=>{if(event.key==='Escape')close()}}>
+    {status==='loading'?<span className="muted text-sm" aria-live="polite">{translate('restoringSession')}</span>:<>
+     <section className="nav-menu-group" aria-labelledby="nav-overview-heading">
+      <h2 className="nav-menu-section" id="nav-overview-heading">OVERVIEW</h2>
       <Link href="/" onClick={close} aria-current={pathname==='/'?'page':undefined}>{translate('home')}</Link>
-      <Link href="/dashboard" onClick={close} aria-current={active('/dashboard')?'page':undefined}><LayoutDashboard size={15} aria-hidden="true"/>{translate('dashboard')}</Link>
-      <span className="nav-menu-section" aria-hidden="true">{translate('menuInvesting')}</span>
-     <Link href="/markets" onClick={close} aria-current={active('/markets')?'page':undefined}><LineChart size={15} aria-hidden="true"/>{translate('markets')}</Link>
+      <Link href="/dashboard" onClick={close} aria-current={active('/dashboard')?'page':undefined}><LayoutDashboard size={16} aria-hidden="true"/>{translate('dashboard')}</Link>
+     </section>
+     <section className="nav-menu-group" aria-labelledby="nav-investing-heading">
+      <h2 className="nav-menu-section" id="nav-investing-heading">INVESTING</h2>
+      <Link href="/markets" onClick={close} aria-current={active('/markets')?'page':undefined}><LineChart size={16} aria-hidden="true"/>{translate('markets')}</Link>
       <Link href="/trade" onClick={close} aria-current={active('/trade')?'page':undefined}><ActivityIcon/>{translate('trade')}</Link>
-     <Link href="/portfolio" onClick={close} aria-current={active('/portfolio')?'page':undefined}>{translate('portfolio')}</Link>
-     <Link href="/orders" onClick={close} aria-current={active('/orders')?'page':undefined}>{translate('orders')}</Link>
-     <Link href="/investments" onClick={close} aria-current={active('/investments')?'page':undefined}>{translate('investments')}</Link>
-      <span className="nav-menu-section" aria-hidden="true">{translate('menuAccountSupport')}</span>
-      <Link href="/wallet" onClick={close} aria-current={active('/wallet')?'page':undefined}><Wallet size={15} aria-hidden="true"/>{translate('wallet')}</Link>
-      <Link href="/kyc" onClick={close} aria-current={active('/kyc')?'page':undefined}><ShieldCheck size={15} aria-hidden="true"/>{translate('verification')}</Link>
-      <Link href="/settings" onClick={close} aria-current={active('/settings')?'page':undefined}><Settings size={15} aria-hidden="true"/>{translate('settings')}</Link>
+     </section>
+     <section className="nav-menu-group" aria-labelledby="nav-portfolio-heading">
+      <h2 className="nav-menu-section" id="nav-portfolio-heading">PORTFOLIO</h2>
+      <Link href="/orders" onClick={close} aria-current={active('/orders')?'page':undefined}>{translate('orders')}</Link>
+      <Link href="/investments" onClick={close} aria-current={active('/investments')?'page':undefined}>{translate('investments')}</Link>
+     </section>
+     <section className="nav-menu-group" aria-labelledby="nav-account-heading">
+      <h2 className="nav-menu-section" id="nav-account-heading">ACCOUNT &amp; SUPPORT</h2>
+      <Link href="/wallet" onClick={close} aria-current={active('/wallet')?'page':undefined}><Wallet size={16} aria-hidden="true"/>{translate('wallet')}</Link>
+      <Link href="/kyc" onClick={close} aria-current={active('/kyc')?'page':undefined}><ShieldCheck size={16} aria-hidden="true"/>{translate('verification')}</Link>
+      <Link href="/settings" onClick={close} aria-current={active('/settings')?'page':undefined}><Settings size={16} aria-hidden="true"/>{translate('settings')}</Link>
       <Link href="/notifications" onClick={close} aria-current={active('/notifications')?'page':undefined}>{translate('notifications')}</Link>
       <Link href="/support" onClick={close} aria-current={active('/support')?'page':undefined}>{translate('support')}</Link>
-     <Link href="/waitlist" onClick={close} aria-current={pathname==='/waitlist'?'page':undefined}>{translate('joinWaitlist')}</Link>
-     {data.user.role==='ADMIN'&&<span className="nav-menu-section" aria-hidden="true">{translate('menuAdministration')}</span>}
-     {data.user.role==='ADMIN'&&<><Link href="/admin" onClick={close} aria-current={pathname==='/admin'?'page':undefined}>{translate('admin')}</Link><Link href="/admin/investments" onClick={close} aria-current={active('/admin/investments')?'page':undefined}>{translate('investmentOps')}</Link><Link href="/admin/payments" onClick={close} aria-current={active('/admin/payments')?'page':undefined}>{translate('payments')}</Link><Link href="/admin/support" onClick={close} aria-current={active('/admin/support')?'page':undefined}>{translate('supportInbox')}</Link><Link href="/admin/tiers" onClick={close} aria-current={active('/admin/tiers')?'page':undefined}>Tier reviews</Link></>}
-       <label className="mode-switch-wrap"><span className="sr-only">{translate('accountMode')}</span><select className="mode-switch" aria-label={translate('accountMode')} value={data.user.accountMode} disabled={modeBusy||loggingOut} aria-busy={modeBusy} onChange={event=>void changeMode(event.target.value as 'DEMO'|'REAL')}><option value="DEMO">{translate('demo')}</option><option value="REAL">{translate('real')}</option></select></label>
+      <a className="nav-contact" href="tel:+12105047697" onClick={close}><PhoneCall size={16} aria-hidden="true"/><span><b>Call Support</b><small>+1 (210) 504-7697</small></span></a>
+      <a className="nav-contact" href="mailto:aureviainvest@gmail.com" onClick={close}><Mail size={16} aria-hidden="true"/><span><b>Email</b><small>aureviainvest@gmail.com</small></span></a>
+     </section>
+     {status==='authenticated'&&data?.user&&<div className="nav-menu-tools">
+      <label className="mode-switch-wrap"><span>{translate('accountMode')}</span><select className="mode-switch" aria-label={translate('accountMode')} value={data.user.accountMode} disabled={modeBusy||loggingOut} aria-busy={modeBusy} onChange={event=>void changeMode(event.target.value as 'DEMO'|'REAL')}><option value="DEMO">{translate('demo')}</option><option value="REAL">{translate('real')}</option></select></label>
       {modeError&&<span className="text-xs text-loss" role="alert">{modeError}</span>}
-      <button type="button" className="nav-logout" disabled={loggingOut} aria-busy={loggingOut} onClick={()=>void logout()}><LogOut size={15} aria-hidden="true"/>{loggingOut?translate('signingOut'):translate('logout')}</button>
-     </> : status==='unauthenticated' ? <><span className="nav-menu-section" aria-hidden="true">{translate('menuExplore')}</span><Link href="/" onClick={close} aria-current={pathname==='/'?'page':undefined}>{translate('home')}</Link><Link href="/markets" onClick={close} aria-current={active('/markets')?'page':undefined}><LineChart size={15} aria-hidden="true"/>{translate('markets')}</Link><Link href="/#platform" onClick={close}>{translate('platform')}</Link><Link href="/education" onClick={close} aria-current={active('/education')?'page':undefined}>{translate('education')}</Link><span className="nav-menu-section" aria-hidden="true">{translate('menuAurevia')}</span><Link href="/about" onClick={close} aria-current={active('/about')?'page':undefined}>{translate('about')}</Link><Link href="/support" onClick={close} aria-current={active('/support')?'page':undefined}>{translate('support')}</Link><Link href="/waitlist" onClick={close}>{translate('joinWaitlist')}</Link><span className="nav-menu-section" aria-hidden="true">{translate('menuAccountAccess')}</span><Link href="/login" onClick={close}><UserRound size={15} aria-hidden="true"/>{translate('login')}</Link><Link href="/register" className="nav-cta" onClick={close}>{translate('openAccount')} <ArrowUpRight size={14} aria-hidden="true"/></Link></> : <span className="muted text-sm" aria-live="polite">{modeError||translate('restoringSession')}</span>}
+      <button type="button" className="nav-logout" disabled={loggingOut} aria-busy={loggingOut} onClick={()=>void logout()}><LogOut size={16} aria-hidden="true"/>{loggingOut?translate('signingOut'):translate('logout')}</button>
+     </div>}
+    </>}
    </nav>
    <div className="nav-actions"><NotificationBell/><LanguageSelector/><button className="menu-button" type="button" aria-label={open?translate('closeMenu'):translate('openMenu')} aria-expanded={open} aria-controls="primary-navigation" onClick={()=>setOpen(!open)}>{open?<X aria-hidden="true"/>:<Menu aria-hidden="true"/>}</button></div>
  </div></header>

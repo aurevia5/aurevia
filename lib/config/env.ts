@@ -41,6 +41,7 @@ export type ServerConfiguration = {
     emailApiKey: string;
     smsApiUrl: string;
     smsApiKey: string;
+    registrationVerificationEnabled: boolean;
     phoneVerificationRequired: boolean;
     configured: boolean;
   };
@@ -189,7 +190,7 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
       from: env('SMTP_FROM', source),
       supportEmail: env('SUPPORT_EMAIL', source) || 'aureviainvest@gmail.com',
       complaintsEmail: env('COMPLAINTS_EMAIL', source) || env('SUPPORT_EMAIL', source) || 'aureviainvest@gmail.com',
-      supportPhone: env('SUPPORT_PHONE', source),
+      supportPhone: env('SUPPORT_PHONE', source) || '+1 (210) 504-7697',
       configured: smtpConfigured,
     },
     verification: {
@@ -198,6 +199,7 @@ export function getServerConfiguration(source: EnvironmentSource = process.env):
       emailApiKey: env('VERIFICATION_EMAIL_API_KEY', source),
       smsApiUrl: env('VERIFICATION_SMS_API_URL', source),
       smsApiKey: env('VERIFICATION_SMS_API_KEY', source),
+      registrationVerificationEnabled: booleanEnv('REGISTRATION_VERIFICATION_ENABLED', source),
       phoneVerificationRequired: booleanEnv('PHONE_VERIFICATION_REQUIRED', source),
       configured: verificationEmailConfigured || verificationSmsConfigured,
     },

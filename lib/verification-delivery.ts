@@ -32,7 +32,8 @@ export function availableVerificationChannel(phone:string|null){
 	return null;
 }
 
-export function registrationVerificationChannel(phone:string|null,phoneRequired=getServerConfiguration().verification.phoneVerificationRequired){
+export function registrationVerificationChannel(phone:string|null,phoneRequired=getServerConfiguration().verification.phoneVerificationRequired,enabled=getServerConfiguration().verification.registrationVerificationEnabled){
+	if(!enabled)return null;
 	if(phoneRequired)return phone&&provider(VerificationChannel.SMS)?VerificationChannel.SMS:null;
 	return provider(VerificationChannel.EMAIL)?VerificationChannel.EMAIL:null;
 }

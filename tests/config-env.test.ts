@@ -86,6 +86,16 @@ describe('canonical environment configuration',()=>{
     expect(config.marketData.configured).toBe(false);
   });
 
+  it('uses the published support phone when no override is configured',()=>{
+    expect(getServerConfiguration({}).smtp.supportPhone).toBe('+1 (210) 504-7697');
+    expect(getServerConfiguration({SUPPORT_PHONE:'+1 555 010 1234'}).smtp.supportPhone).toBe('+1 555 010 1234');
+  });
+
+  it('keeps registration contact verification disabled unless explicitly enabled',()=>{
+    expect(getServerConfiguration({}).verification.registrationVerificationEnabled).toBe(false);
+    expect(getServerConfiguration({REGISTRATION_VERIFICATION_ENABLED:'true'}).verification.registrationVerificationEnabled).toBe(true);
+  });
+
   it('accepts the Individual Trading API variable names without enabling real execution by default',()=>{
     const config=getServerConfiguration({
       REAL_EXECUTION_ENABLED:'false',

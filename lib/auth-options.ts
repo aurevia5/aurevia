@@ -10,6 +10,7 @@ import {createNotification} from '@/lib/notifications';
 import {rateLimit} from '@/lib/rate-limit';
 import {resolveCredentialLookup} from '@/lib/credential-lookup';
 import {getServerConfiguration} from '@/lib/config/env';
+import {AUTH_SESSION_MAX_AGE_SECONDS,isAuthSessionExpired} from '@/lib/auth-session';
 
 function headerValue(value:string|string[]|undefined){return Array.isArray(value)?value[0]||'':value||''}
 function auditClientIp(headers:IncomingHttpHeaders){
@@ -24,8 +25,8 @@ function safeAuditError(error:unknown){
 }
 
 export const authOptions:NextAuthOptions={
-  session:{strategy:'jwt',maxAge:8*60*60},
-  jwt:{maxAge:8*60*60},
+  session:{strategy:'jwt',maxAge:AUTH_SESSION_MAX_AGE_SECONDS},
+  jwt:{maxAge:AUTH_SESSION_MAX_AGE_SECONDS},
   pages:{signIn:'/login'},
   providers:[CredentialsProvider({
     name:'credentials',
@@ -33,6 +34,7 @@ export const authOptions:NextAuthOptions={
       email:{label:'Email',type:'email'},
       username:{label:'Username',type:'text'},
       password:{label:'Password',type:'password'},
+      adminLogin:{label:'Administrator sign-in',type:'text'},
       replaceSession:{label:'Replace active session',type:'text'}
     },
     async authorize(c,request){
@@ -56,18 +58,20 @@ export const authOptions:NextAuthOptions={
         }catch(error){console.warn(`Login audit write failed (${safeAuditError(error)}).`)}
       };
       try{rateLimit(`credential-login:${ipAddress||'unknown'}`,20,15*60_000)}catch{await writeLoginAudit('FAILED',undefined,undefined,'RATE_LIMITED');return null}
-      const authConfig=getServerConfiguration().auth;
-      const {isAdminUsername,lookupEmail}=resolveCredentialLookup(username,email,authConfig.adminUsername,authConfig.adminEmail);
+      const serverConfig=getServerConfiguration();
+      const authConfig=serverConfig.auth;
+      const {isAdminUsername,lookupEmail}=resolveCredentialLookup(username,email,authConfig.adminUsername,authConfig.adminEmail,c?.adminLogin==='true');
       if(!lookupEmail){await writeLoginAudit('FAILED',undefined,undefined,'MISSING_IDENTIFIER');return null;}
       const u=await db.user.findUnique({where:{email:lookupEmail}});
-      if(!u||u.status!=='ACTIVE'||(u.role==='USER'&&u.requiresRegistrationVerification&&!u.verifiedAt)){
+      if(!u||u.status!=='ACTIVE'||(serverConfig.verification.registrationVerificationEnabled&&u.role==='USER'&&u.requiresRegistrationVerification&&!u.verifiedAt)){
         await writeLoginAudit('FAILED',u?.id,undefined,!u?'ACCOUNT_NOT_FOUND':u.status!=='ACTIVE'?'ACCOUNT_INACTIVE':'VERIFICATION_REQUIRED');
         return null;
       }
       const ok=await bcrypt.compare(password,u.passwordHash);
       if(!ok){await writeLoginAudit('FAILED',u.id,undefined,'INVALID_CREDENTIALS');return null;}
       if(isAdminUsername&&u.role!=='ADMIN'){await writeLoginAudit('FAILED',u.id,undefined,'ADMIN_ROLE_REQUIRED');return null;}
-      if(u.activeSessionId&&c?.replaceSession!=='true'){await writeLoginAudit('FAILED',u.id,undefined,'ACTIVE_SESSION_REPLACEMENT_REQUIRED');return null;}
+      const activeSessionExpired=!!u.activeSessionId&&isAuthSessionExpired(u.activeSessionUpdatedAt);
+      if(u.activeSessionId&&!activeSessionExpired&&c?.replaceSession!=='true'){await writeLoginAudit('FAILED',u.id,undefined,'ACTIVE_SESSION_REPLACEMENT_REQUIRED');return null;}
       const sessionId=randomUUID();
       const claimed=await db.user.updateMany({where:{id:u.id,activeSessionId:u.activeSessionId},data:{activeSessionId:sessionId,activeSessionUpdatedAt:new Date()}});
       if(claimed.count!==1){await writeLoginAudit('FAILED',u.id,undefined,'SESSION_CLAIM_FAILED');return null;}

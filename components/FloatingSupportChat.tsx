@@ -13,13 +13,14 @@ type DragState={pointerId:number;startX:number;startY:number;left:number;top:num
 const positionKey='aurevia-support-chat-position';
 const widgetWidth=360;
 const panelHeight=560;
+const launcherSize=56;
 
 function clampPosition(position:Position,expanded:boolean):Position{
-	const width=window.innerWidth<384?window.innerWidth-24:widgetWidth;
-	const height=expanded?panelHeight:64;
+	const width=expanded?Math.min(widgetWidth,window.innerWidth-24):launcherSize;
+	const height=expanded?Math.min(panelHeight,window.innerHeight-24):launcherSize;
 	return {
-		left:Math.max(12,Math.min(position.left,window.innerWidth-width-12)),
-		top:Math.max(12,Math.min(position.top,window.innerHeight-height-12)),
+		left:Math.max(12,Math.min(position.left,Math.max(12,window.innerWidth-width-12))),
+		top:Math.max(12,Math.min(position.top,Math.max(12,window.innerHeight-height-12))),
 	};
 }
 
@@ -117,7 +118,7 @@ export default function FloatingSupportChat(){
 
 	if(!position)return null;
 	return <aside className={`floating-support ${open?'is-open':''}`} style={{left:position.left,top:position.top}} aria-label="Chat support">
-		{!open?<button className="floating-support-launcher" type="button" aria-label="Open chat support" onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={toggleOpen}><MessageCircle size={20}/><span>Chat support</span><Move size={13} aria-hidden="true"/></button>:<section className="floating-support-panel" aria-label="Admin chat support">
+		{!open?<button className="floating-support-launcher" type="button" aria-label="Open chat support" title="Drag to move, click to open" onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onClick={toggleOpen}><MessageCircle size={21}/><Move size={12} aria-hidden="true"/></button>:<section className="floating-support-panel" aria-label="Admin chat support">
 			<header className="floating-support-header" onPointerDown={beginDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}>
 				<span className="floating-support-icon"><LifeBuoy size={17}/></span><div><b>Admin support</b><small>Private account conversation</small></div>
 				<button type="button" aria-label="Minimize chat support" onClick={()=>setOpen(false)}><Minus size={16}/></button><button type="button" aria-label="Close chat support" onClick={()=>setOpen(false)}><X size={16}/></button>

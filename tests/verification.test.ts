@@ -3,7 +3,7 @@ import {availableVerificationChannel,generateVerificationCode,hashVerificationCo
 
 describe('account verification codes',()=>{
  const previousSecret=process.env.VERIFICATION_CODE_SECRET;
- const deliveryKeys=['VERIFICATION_EMAIL_API_URL','VERIFICATION_EMAIL_API_KEY','VERIFICATION_SMS_API_URL','VERIFICATION_SMS_API_KEY','AUREVIA_E2E_ALLOW_HTTP_PROVIDER'];
+ const deliveryKeys=['VERIFICATION_EMAIL_API_URL','VERIFICATION_EMAIL_API_KEY','VERIFICATION_SMS_API_URL','VERIFICATION_SMS_API_KEY','REGISTRATION_VERIFICATION_ENABLED','AUREVIA_E2E_ALLOW_HTTP_PROVIDER'];
  const previousDeliveryValues=Object.fromEntries(deliveryKeys.map(key=>[key,process.env[key]]));
  afterEach(()=>{
   if(previousSecret===undefined)delete process.env.VERIFICATION_CODE_SECRET;
@@ -38,10 +38,12 @@ describe('account verification codes',()=>{
   expect(availableVerificationChannel(null)).toBeNull();
  });
 
-    it('does not select SMS for registration unless phone verification is required',()=>{
+    it('skips registration contact verification unless explicitly enabled',()=>{
+        process.env.REGISTRATION_VERIFICATION_ENABLED='false';
         process.env.VERIFICATION_SMS_API_KEY='test-only-key';
         process.env.VERIFICATION_SMS_API_URL='https://sms.example.invalid/send';
-        expect(registrationVerificationChannel('+12125550123',false)).toBeNull();
+        expect(registrationVerificationChannel('+12125550123',true)).toBeNull();
+        process.env.REGISTRATION_VERIFICATION_ENABLED='true';
         expect(registrationVerificationChannel('+12125550123',true)).toBe('SMS');
         expect(registrationVerificationChannel(null,true)).toBeNull();
         process.env.VERIFICATION_EMAIL_API_KEY='test-only-key';
